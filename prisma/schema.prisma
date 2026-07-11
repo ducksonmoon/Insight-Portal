@@ -1,0 +1,328 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String   @id @default(cuid())
+  rahkaranUserId BigInt?  @unique
+  username       String   @unique
+  displayName    String?
+  email          String?
+  passwordHash   String?
+  domainUserName String?
+  isAdmin        Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  moduleAccess UserModuleAccess[]
+  reportAccess UserReportAccess[]
+  auditLogs  AuditLog[]
+  roles          UserRole[]
+  savedViews     SavedReportView[]
+  favorites      ReportFavorite[]
+  schedules      ReportSchedule[]
+  locale         String   @default("fa")
+}
+
+model ReportModule {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  nameFa      String
+  description String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  reports    Report[]
+  folders    ReportFolder[]
+  rdlReports RdlReport[]
+  userAccess UserModuleAccess[]
+  roleAccess RoleModuleAccess[]
+}
+
+model ReportFolder {
+  id             String        @id @default(cuid())
+  moduleId       String
+  module         ReportModule  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  parentFolderId String?
+  parentFolder   ReportFolder? @relation("FolderTree", fields: [parentFolderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  childFolders   ReportFolder[] @relation("FolderTree")
+  nameFa         String
+  sortOrder      Int           @default(0)
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  reports Report[]
+
+  @@index([moduleId])
+  @@index([parentFolderId])
+}
+
+model DataSource {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  nameFa         String
+  type           String   @default("sqlserver")
+  /// Env-var based connection key, e.g. "rahkaran" | "attendance"
+  providerKey    String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  reports Report[]
+}
+
+model Report {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  nameFa         String
+  moduleId       String
+  module         ReportModule @relation(fields: [moduleId], references: [id])
+  folderId       String?
+  folder         ReportFolder? @relation(fields: [folderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dataSourceId   String?
+  dataSource     DataSource?  @relation(fields: [dataSourceId], references: [id])
+  /// Relative path under src/lib/reports/sql/
+  sqlFile        String?
+  /// Inline SQL when edited in Studio (takes precedence over sqlFile when set and published)
+  sqlQuery       String?  @db.NVarChar(Max)
+  /// Full ReportDefinition JSON document
+  definition     String?  @db.NVarChar(Max)
+  publishedVersion Int    @default(1)
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  /// studio | package | rdl
+  sourceType     String   @default("studio")
+  /// RDL row id, import filename note, etc.
+  sourceRef      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  versions   ReportVersion[]
+  userAccess UserReportAccess[]
+  roleAccess RoleReportAccess[]
+  auditLogs  AuditLog[]
+  rdlSources RdlReport[]
+}
+
+/// Uploaded SSRS/RDL report (legacy) — view metadata and convert to Insight report
+model RdlReport {
+  id               String   @id @default(cuid())
+  slug             String   @unique
+  nameFa           String
+  originalFilename String
+  storageName      String
+  /// Parsed summary JSON (parameters, datasets, layout)
+  parsedMeta       String   @db.NVarChar(Max)
+  moduleId         String?
+  module           ReportModule? @relation(fields: [moduleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// If converted, linked native report slug (legacy)
+  convertedReportSlug String?
+  /// FK to native Report row
+  convertedReportId   String?
+  convertedReport     Report?  @relation(fields: [convertedReportId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  /// uploaded | converted | failed | needs_review
+  convertStatus     String   @default("uploaded")
+  convertError      String?
+  uploadedBy       String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([moduleId])
+  @@index([convertedReportId])
+}
+
+model Role {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  nameFa    String
+  createdAt DateTime @default(now())
+
+  users         UserRole[]
+  moduleAccess  RoleModuleAccess[]
+  reportAccess  RoleReportAccess[]
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, roleId])
+}
+
+model RoleModuleAccess {
+  id        String   @id @default(cuid())
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  moduleId  String
+  module    ReportModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  canView   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([roleId, moduleId])
+}
+
+model RoleReportAccess {
+  id        String   @id @default(cuid())
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  reportId  String
+  report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  canView   Boolean  @default(true)
+  canExport Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([roleId, reportId])
+}
+
+model SavedReportView {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reportSlug String
+  nameFa     String
+  parameters String   @db.NVarChar(Max)
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId, reportSlug])
+}
+
+model ReportFavorite {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reportSlug String
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, reportSlug])
+}
+
+model ReportSchedule {
+  id           String    @id @default(cuid())
+  reportSlug   String
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nameFa       String
+  /// daily | weekly | monthly
+  frequency    String    @default("daily")
+  /// HH:mm 24h
+  runAt        String    @default("08:00")
+  parameters   String    @db.NVarChar(Max)
+  format       String    @default("excel")
+  recipients   String    @db.NVarChar(Max)
+  isActive     Boolean   @default(true)
+  lastRunAt    DateTime?
+  nextRunAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([isActive, nextRunAt])
+}
+
+model ReportVersion {
+  id          String   @id @default(cuid())
+  reportId    String
+  report      Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  version     Int
+  definition  String   @db.NVarChar(Max)
+  sqlSnapshot String?  @db.NVarChar(Max)
+  note        String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+
+  @@unique([reportId, version])
+}
+
+model LookupCatalog {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  nameFa      String
+  description String?
+  /// Must return Code, Label columns
+  lookupSql   String   @db.NVarChar(Max)
+  dataSourceKey String  @default("rahkaran")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model UserModuleAccess {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moduleId  String
+  module    ReportModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  canView   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, moduleId])
+}
+
+model UserReportAccess {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reportId  String
+  report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  canView   Boolean  @default(true)
+  canExport Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, reportId])
+}
+
+model DashboardWidget {
+  id        String   @id @default(cuid())
+  title     String
+  type      String
+  config    String   @db.NVarChar(Max)
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  action     String
+  reportId   String?
+  report     Report?  @relation(fields: [reportId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  parameters String?  @db.NVarChar(Max)
+  durationMs Int?
+  success    Boolean  @default(true)
+  message    String?  @db.NVarChar(Max)
+  createdAt  DateTime @default(now())
+}
+
+/// Singleton-style product branding / first-install settings (id = "default")
+model AppSettings {
+  id              String   @id @default("default")
+  setupComplete   Boolean  @default(false)
+  companyNameFa   String   @default("")
+  companyNameEn   String?
+  appNameFa       String   @default("پورتال مدیریتی")
+  appNameEn       String   @default("Insight Portal")
+  logoPath        String?
+  faviconPath     String?
+  primaryColor    String   @default("#1e4d7b")
+  accentColor     String   @default("#0d7a6f")
+  supportEmail    String?
+  supportPhone    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

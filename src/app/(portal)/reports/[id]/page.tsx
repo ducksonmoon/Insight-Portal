@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { ReportViewer } from "@/components/reports/report-viewer";
 import { auth } from "@/lib/auth/auth";
 import { canViewReport } from "@/lib/auth/access";
+import { getReportPlacement } from "@/lib/reports/organization";
 import { getReportDefinition } from "@/lib/reports/registry";
 
 type PageProps = {
@@ -17,13 +18,15 @@ export default async function ReportDetailPage({ params }: PageProps) {
   const { id } = await params;
   const allowed = await canViewReport(session.user, id);
   if (!allowed) {
-    redirect("/reports");
+    redirect("/reports?denied=report");
   }
 
   const report = await getReportDefinition(id);
   if (!report) {
     notFound();
   }
+
+  const placement = await getReportPlacement(id);
 
   return (
     <Suspense
@@ -33,7 +36,7 @@ export default async function ReportDetailPage({ params }: PageProps) {
         </div>
       }
     >
-      <ReportViewer report={report} />
+      <ReportViewer report={report} placement={placement} />
     </Suspense>
   );
 }

@@ -9,7 +9,7 @@ type Props = { params: Promise<{ id: string }> };
 
 export default async function RdlDetailPage({ params }: Props) {
   const session = await auth();
-  if (!session?.user?.isAdmin) redirect("/");
+  if (!session?.user?.isAdmin) redirect("/?denied=admin");
 
   const { id } = await params;
 

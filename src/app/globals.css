@@ -226,8 +226,8 @@ select.input-field {
 
 /* Portal shell */
 .portal-shell {
-  --portal-glow: color-mix(in srgb, var(--primary) 12%, transparent);
-  --portal-glow-accent: color-mix(in srgb, var(--accent) 10%, transparent);
+  --portal-glow: color-mix(in srgb, var(--primary) 6%, transparent);
+  --portal-glow-accent: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 
 .portal-atmosphere {
@@ -278,6 +278,14 @@ select.input-field {
 }
 
 /* Dashboard */
+.dashboard-header-panel {
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  padding: 1.25rem 1.5rem;
+}
+
 .dashboard-hero {
   position: relative;
   overflow: hidden;
@@ -733,12 +741,47 @@ select.input-field {
 }
 
 .confirm-dialog {
+  position: relative;
   width: min(420px, 100%);
   border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--border);
   padding: 1.25rem;
   box-shadow: var(--shadow-md);
+}
+
+.dialog-content {
+  width: min(480px, 100%);
+}
+
+.dialog-close {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  border-radius: 0.5rem;
+  padding: 0.25rem;
+  color: var(--muted);
+}
+
+.dialog-close:hover {
+  background: var(--surface-muted);
+  color: var(--foreground);
+}
+
+.dialog-header {
+  margin-bottom: 0.75rem;
+  padding-inline-end: 1.5rem;
+}
+
+.dialog-footer {
+  margin-top: 1.25rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.export-hint {
+  cursor: help;
 }
 
 @keyframes toast-in {

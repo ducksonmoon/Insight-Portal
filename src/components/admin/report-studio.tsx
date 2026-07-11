@@ -157,6 +157,9 @@ export function ReportStudio({ mode, initialId }: ReportStudioProps) {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [sourceType, setSourceType] = useState<string | null>(null);
   const [sourceRef, setSourceRef] = useState<string | null>(null);
+  const [dataSourceOptions, setDataSourceOptions] = useState<
+    Array<{ key: string; nameFa: string; configured: boolean }>
+  >([{ key: "rahkaran", nameFa: "راهکاران", configured: true }]);
 
   const draftDefinition = useMemo(
     () => syncPrimarySql(definition, sqlText),
@@ -191,6 +194,18 @@ export function ReportStudio({ mode, initialId }: ReportStudioProps) {
           })),
         ),
       )
+      .catch(() => undefined);
+
+    fetch("/api/admin/datasources")
+      .then((r) => r.json())
+      .then((data) => {
+        const providers = (data.providers ?? []) as Array<{
+          key: string;
+          nameFa: string;
+          configured: boolean;
+        }>;
+        if (providers.length) setDataSourceOptions(providers);
+      })
       .catch(() => undefined);
   }, []);
 
@@ -750,8 +765,25 @@ export function ReportStudio({ mode, initialId }: ReportStudioProps) {
                     updateMeta({ dataSourceId: e.target.value })
                   }
                 >
-                  <option value="rahkaran">راهکاران</option>
+                  {dataSourceOptions.map((ds) => (
+                    <option
+                      key={ds.key}
+                      value={ds.key}
+                      disabled={!ds.configured}
+                    >
+                      {ds.nameFa}
+                      {!ds.configured ? " (پیکربندی نشده)" : ""}
+                    </option>
+                  ))}
                 </select>
+                {!dataSourceOptions.find(
+                  (d) => d.key === definition.dataSourceId,
+                )?.configured ? (
+                  <p className="text-xs text-[var(--danger)]">
+                    این منبع داده پیکربندی نشده — از تنظیمات برند وضعیت را بررسی
+                    کنید.
+                  </p>
+                ) : null}
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <label className="block space-y-1.5 text-sm">

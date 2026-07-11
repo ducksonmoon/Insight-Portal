@@ -18,6 +18,9 @@ type ScheduleRow = {
   format: string;
   isActive: boolean;
   recipients: string[];
+  lastRunAt?: string | null;
+  lastRunStatus?: string | null;
+  lastRunError?: string | null;
   user: { username: string; displayName: string | null };
 };
 
@@ -262,6 +265,27 @@ export function SchedulesManager() {
                   {s.reportSlug} · {s.frequency} @ {s.runAt} · {s.format} ·{" "}
                   {s.recipients.join(", ")}
                 </p>
+                {s.lastRunAt ? (
+                  <p
+                    className={`mt-1 text-xs ${
+                      s.lastRunStatus === "failed"
+                        ? "text-[var(--danger)]"
+                        : "text-[var(--success)]"
+                    }`}
+                  >
+                    آخرین اجرا:{" "}
+                    {new Date(s.lastRunAt).toLocaleString("fa-IR")}
+                    {s.lastRunStatus === "failed" && s.lastRunError
+                      ? ` — ${s.lastRunError}`
+                      : s.lastRunStatus === "success"
+                        ? " — موفق"
+                        : ""}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    هنوز اجرا نشده
+                  </p>
+                )}
               </div>
               <Button size="sm" variant="outline" onClick={() => void toggleActive(s)}>
                 {s.isActive ? "فعال" : "غیرفعال"}

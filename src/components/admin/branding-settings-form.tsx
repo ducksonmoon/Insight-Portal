@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Loader2, Save, Upload } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
+import { DatasourceHealthPanel } from "@/components/admin/datasource-health-panel";
 import { Button } from "@/components/ui/button";
 import type { Branding } from "@/lib/branding/settings";
 
@@ -295,6 +296,8 @@ export function BrandingSettingsForm() {
           </div>
         </div>
       </div>
+
+      <DatasourceHealthPanel />
     </form>
   );
 }

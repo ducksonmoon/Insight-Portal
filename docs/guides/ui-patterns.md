@@ -28,7 +28,7 @@ Use `.input-field` (or `Input` / `Select` / `Textarea` components). Labels use `
 
 ## Feedback
 
-Use `useToast()` for success/error and confirmations. Do not call `window.alert` / `window.confirm`.
+Use `useToast()` for success/error and confirmations. Do not call `window.alert` / `window.confirm` / `window.prompt`. Use `Dialog` from `src/components/ui/dialog.tsx` for modal forms.
 
 ## Tokens
 

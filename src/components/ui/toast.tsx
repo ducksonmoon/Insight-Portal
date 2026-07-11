@@ -37,9 +37,15 @@ export function useToast() {
   const ctx = useContext(ToastContext);
   if (!ctx) {
     return {
-      toast: (msg: string) => window.alert(msg),
-      confirm: async (title: string, msg: string) =>
-        window.confirm(`${title}\n${msg}`),
+      toast: (msg: string, _type?: ToastType) => {
+        if (typeof console !== "undefined") console.info("[toast]", msg);
+      },
+      confirm: async (_title: string, msg: string) => {
+        if (typeof window !== "undefined") {
+          return window.confirm(msg);
+        }
+        return false;
+      },
     };
   }
   return ctx;

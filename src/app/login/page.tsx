@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 
 import { LoginForm } from "@/components/auth/login-form";
+import { ToastProvider } from "@/components/ui/toast";
 import { getBranding, isSetupComplete } from "@/lib/branding/settings";
 import { brandingStyleVars } from "@/lib/branding/theme";
 
@@ -40,7 +41,9 @@ export default async function LoginPage() {
           </div>
         }
       >
-        <LoginForm branding={branding} />
+        <ToastProvider>
+          <LoginForm branding={branding} />
+        </ToastProvider>
       </Suspense>
     </div>
   );

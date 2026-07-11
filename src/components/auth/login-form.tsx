@@ -7,6 +7,7 @@ import { Loader2, LockKeyhole } from "lucide-react";
 
 import { BrandMark } from "@/components/branding/brand-mark";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { Branding } from "@/lib/branding/settings";
 
 type LoginFormProps = {
@@ -21,12 +22,15 @@ export function LoginForm({ branding }: LoginFormProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setInfo(null);
 
     const result = await signIn("credentials", {
       username,
@@ -43,6 +47,30 @@ export function LoginForm({ branding }: LoginFormProps) {
 
     router.push(callbackUrl);
     router.refresh();
+  }
+
+  async function requestReset() {
+    if (!username.trim()) {
+      setError("ابتدا نام کاربری را وارد کنید");
+      return;
+    }
+    setResetLoading(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await fetch("/api/auth/request-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "خطا");
+      setInfo(data.message ?? "درخواست ثبت شد");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "خطا");
+    } finally {
+      setResetLoading(false);
+    }
   }
 
   return (
@@ -71,10 +99,9 @@ export function LoginForm({ branding }: LoginFormProps) {
         </div>
 
         <form className="space-y-4" onSubmit={onSubmit}>
-          <label className="flex flex-col gap-1.5 text-sm">
-            <span className="font-semibold text-[var(--foreground)]">نام کاربری</span>
-            <input
-              className="h-11 rounded-xl border border-[var(--border)] bg-white px-3"
+          <label className="block space-y-1">
+            <span className="field-label">نام کاربری</span>
+            <Input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
@@ -82,11 +109,10 @@ export function LoginForm({ branding }: LoginFormProps) {
             />
           </label>
 
-          <label className="flex flex-col gap-1.5 text-sm">
-            <span className="font-semibold text-[var(--foreground)]">رمز عبور</span>
-            <input
+          <label className="block space-y-1">
+            <span className="field-label">رمز عبور</span>
+            <Input
               type="password"
-              className="h-11 rounded-xl border border-[var(--border)] bg-white px-3"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
@@ -95,6 +121,7 @@ export function LoginForm({ branding }: LoginFormProps) {
           </label>
 
           {error ? <p className="alert alert-danger">{error}</p> : null}
+          {info ? <p className="alert alert-success">{info}</p> : null}
 
           <Button type="submit" className="h-11 w-full" disabled={loading}>
             {loading ? (
@@ -108,6 +135,17 @@ export function LoginForm({ branding }: LoginFormProps) {
                 ورود به سامانه
               </>
             )}
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full text-sm"
+            disabled={resetLoading}
+            onClick={() => void requestReset()}
+          >
+            {resetLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            فراموشی رمز — درخواست به مدیر
           </Button>
         </form>
       </div>

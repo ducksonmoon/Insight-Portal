@@ -12,7 +12,7 @@ type PageProps = {
 export default async function AccessPage({ searchParams }: PageProps) {
   const session = await auth();
   if (!session?.user?.isAdmin) {
-    redirect("/");
+    redirect("/?denied=admin");
   }
 
   const { tab } = await searchParams;

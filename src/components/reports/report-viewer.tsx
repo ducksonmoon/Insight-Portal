@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   Download,
@@ -14,8 +13,20 @@ import {
 import { ReportCharts } from "@/components/reports/report-charts";
 import { ReportDataGrid } from "@/components/reports/report-data-grid";
 import { ReportParameterForm } from "@/components/reports/report-parameter-form";
+import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogCloseButton,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
+import type { ReportPlacement } from "@/lib/reports/organization";
 import type {
   ExecuteReportResult,
   DatasetResult,
@@ -29,6 +40,7 @@ import {
 
 type ReportViewerProps = {
   report: ReportDefinition;
+  placement?: ReportPlacement | null;
 };
 
 type RunMeta = {
@@ -194,7 +206,7 @@ type SavedView = {
 
 const paramsKey = (reportId: string) => `insight:report-params:${reportId}`;
 
-export function ReportViewer({ report }: ReportViewerProps) {
+export function ReportViewer({ report, placement }: ReportViewerProps) {
   const { toast } = useToast();
   const searchParams = useSearchParams();
   const viewIdFromUrl = searchParams.get("view");
@@ -210,6 +222,10 @@ export function ReportViewer({ report }: ReportViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const [hasRun, setHasRun] = useState(false);
   const [meta, setMeta] = useState<RunMeta | null>(null);
+  const [saveViewOpen, setSaveViewOpen] = useState(false);
+  const [saveViewName, setSaveViewName] = useState("");
+  const [saveViewDefault, setSaveViewDefault] = useState(false);
+  const [savingView, setSavingView] = useState(false);
   const autoRan = useRef(false);
 
   const composite = isCompositeReport(report);
@@ -310,24 +326,40 @@ export function ReportViewer({ report }: ReportViewerProps) {
   }
 
   async function saveCurrentView() {
-    const nameFa = window.prompt("نام نما:");
-    if (!nameFa?.trim()) return;
-    const res = await fetch(`/api/reports/${report.id}/views`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        nameFa: nameFa.trim(),
-        parameters: lastParams,
-        isDefault: savedViews.length === 0,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      toast(data.error ?? "خطا", "error");
+    if (!saveViewName.trim()) {
+      toast("نام نما را وارد کنید", "error");
       return;
     }
-    setSavedViews((prev) => [...prev, data.view]);
-    toast("نما ذخیره شد", "success");
+    setSavingView(true);
+    try {
+      const res = await fetch(`/api/reports/${report.id}/views`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nameFa: saveViewName.trim(),
+          parameters: lastParams,
+          isDefault: saveViewDefault || savedViews.length === 0,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast(data.error ?? "خطا", "error");
+        return;
+      }
+      setSavedViews((prev) => [...prev, data.view]);
+      setSaveViewOpen(false);
+      setSaveViewName("");
+      setSaveViewDefault(false);
+      toast("نما ذخیره شد", "success");
+    } finally {
+      setSavingView(false);
+    }
+  }
+
+  function openSaveViewDialog() {
+    setSaveViewName("");
+    setSaveViewDefault(savedViews.length === 0);
+    setSaveViewOpen(true);
   }
 
   async function applyView(view: SavedView) {
@@ -394,8 +426,31 @@ export function ReportViewer({ report }: ReportViewerProps) {
     (result?.totalCount ?? 0) > 0 ||
     Object.values(result?.datasets ?? {}).some((d) => d.rows.length > 0);
 
+  const exportDisabled = !hasRun || isLoading || !hasRows;
+  const exportHint = !hasRun
+    ? "ابتدا گزارش را اجرا کنید"
+    : !hasRows
+      ? "داده‌ای برای خروجی نیست"
+      : undefined;
+
+  const breadcrumbItems = placement
+    ? [
+        { label: "گزارش‌ها", href: "/reports" },
+        {
+          label: placement.moduleNameFa,
+          href: `/reports?module=${placement.moduleSlug}`,
+        },
+        ...(placement.folderNameFa
+          ? [{ label: placement.folderNameFa }]
+          : []),
+        { label: report.nameFa },
+      ]
+    : [{ label: "گزارش‌ها", href: "/reports" }, { label: report.nameFa }];
+
   return (
     <div className="space-y-6">
+      <Breadcrumbs items={breadcrumbItems} />
+
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -406,12 +461,6 @@ export function ReportViewer({ report }: ReportViewerProps) {
             {composite ? (
               <span className="badge badge-success">چندبخشی</span>
             ) : null}
-            <Link
-              href="/reports"
-              className="text-xs text-[var(--muted)] hover:text-[var(--primary)]"
-            >
-              بازگشت به فهرست گزارش‌ها
-            </Link>
           </div>
           <h1 className="page-title">{report.nameFa}</h1>
           <p className="page-subtitle">
@@ -432,30 +481,34 @@ export function ReportViewer({ report }: ReportViewerProps) {
             />
             علاقه‌مندی
           </Button>
-          <Button
-            variant="outline"
-            onClick={exportExcel}
-            disabled={!hasRun || isExporting || isLoading || !hasRows}
-          >
-            {isExporting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4" />
-            )}
-            Excel
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => void exportPdf()}
-            disabled={!hasRun || isPdfExporting || isLoading || !hasRows}
-          >
-            {isPdfExporting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Printer className="h-4 w-4" />
-            )}
-            چاپ/PDF
-          </Button>
+          <span className="export-hint" title={exportHint}>
+            <Button
+              variant="outline"
+              onClick={exportExcel}
+              disabled={exportDisabled || isExporting}
+            >
+              {isExporting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Excel
+            </Button>
+          </span>
+          <span className="export-hint" title={exportHint}>
+            <Button
+              variant="outline"
+              onClick={() => void exportPdf()}
+              disabled={exportDisabled || isPdfExporting}
+            >
+              {isPdfExporting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Printer className="h-4 w-4" />
+              )}
+              چاپ/PDF
+            </Button>
+          </span>
         </div>
       </div>
 
@@ -485,13 +538,13 @@ export function ReportViewer({ report }: ReportViewerProps) {
                 </Button>
               ))}
               {hasRun ? (
-                <Button size="sm" variant="ghost" onClick={() => void saveCurrentView()}>
+                <Button size="sm" variant="ghost" onClick={openSaveViewDialog}>
                   ذخیره نما
                 </Button>
               ) : null}
             </div>
           ) : hasRun ? (
-            <Button size="sm" variant="ghost" onClick={() => void saveCurrentView()}>
+            <Button size="sm" variant="ghost" onClick={openSaveViewDialog}>
               ذخیره نما
             </Button>
           ) : null}
@@ -523,10 +576,57 @@ export function ReportViewer({ report }: ReportViewerProps) {
           <ReportResultSections result={result} report={report} />
         </section>
       ) : (
-        <div className="results-empty">
-          هنوز اجرایی نشده است. فیلترها را تنظیم و «اجرای گزارش» را بزنید.
+        <div className="results-empty space-y-3 text-center">
+          <p className="font-semibold text-[var(--foreground)]">
+            {hasRequired
+              ? "برای مشاهده نتایج، فیلترهای الزامی را پر کنید"
+              : "هنوز اجرایی نشده است"}
+          </p>
+          <p className="text-sm text-[var(--muted)]">
+            {hasRequired
+              ? "فیلدهای ستاره‌دار را تکمیل کرده و دکمه «اجرای گزارش» را بزنید."
+              : "فیلترها را تنظیم کنید یا «اجرای گزارش» را بزنید."}
+          </p>
         </div>
       )}
+
+      <Dialog open={saveViewOpen} onOpenChange={setSaveViewOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ذخیره نما</DialogTitle>
+            <DialogDescription>
+              پارامترهای فعلی با این نام ذخیره می‌شوند.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="block space-y-1">
+            <span className="field-label">نام نما</span>
+            <Input
+              value={saveViewName}
+              onChange={(e) => setSaveViewName(e.target.value)}
+              placeholder="مثلاً ماه جاری"
+              autoFocus
+            />
+          </label>
+          <label className="mt-3 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={saveViewDefault}
+              onChange={(e) => setSaveViewDefault(e.target.checked)}
+            />
+            نمای پیش‌فرض این گزارش
+          </label>
+          <DialogFooter>
+            <DialogCloseButton />
+            <Button
+              onClick={() => void saveCurrentView()}
+              disabled={savingView || !saveViewName.trim()}
+            >
+              {savingView ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              ذخیره
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

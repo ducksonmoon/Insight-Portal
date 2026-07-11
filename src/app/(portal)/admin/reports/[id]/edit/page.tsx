@@ -9,7 +9,7 @@ type PageProps = {
 
 export default async function EditReportPage({ params }: PageProps) {
   const session = await auth();
-  if (!session?.user?.isAdmin) redirect("/");
+  if (!session?.user?.isAdmin) redirect("/?denied=admin");
   const { id } = await params;
   return <ReportStudio mode="edit" initialId={id} />;
 }

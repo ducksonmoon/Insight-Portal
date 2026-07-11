@@ -2,6 +2,9 @@ import Link from "next/link";
 import { ArrowLeft, Folder } from "lucide-react";
 import { redirect } from "next/navigation";
 
+import { Suspense } from "react";
+
+import { AccessDeniedBanner } from "@/components/layout/access-denied-banner";
 import { EmptyState, PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { auth } from "@/lib/auth/auth";
@@ -135,6 +138,9 @@ export default async function ReportsPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
+      <Suspense fallback={null}>
+        <AccessDeniedBanner />
+      </Suspense>
       <PageHeader
         title={filteredModule ? filteredModule.nameFa : "گزارش‌ها"}
         subtitle={

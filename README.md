@@ -152,6 +152,14 @@ NEXT_PUBLIC_APP_NAME=Insight Portal
 NEXT_PUBLIC_COMPANY_NAME=
 SEED_ADMIN_USER=admin       # only used by npm run db:seed
 SEED_ADMIN_PASSWORD=admin123
+
+# Scheduled report email delivery (cron: npm run schedules:run)
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM=reports@company.com
 ```
 
 On Windows Server, if `trustServerCertificate` is required for internal SQL:

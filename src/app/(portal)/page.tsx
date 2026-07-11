@@ -4,6 +4,7 @@ import { DashboardHome } from "@/components/dashboard/dashboard-home";
 import { auth } from "@/lib/auth/auth";
 import { getBranding } from "@/lib/branding/settings";
 import { getDashboardData } from "@/lib/dashboard/data";
+import { getSetupChecklist } from "@/lib/dashboard/setup-checklist";
 
 export const dynamic = "force-dynamic";
 
@@ -12,17 +13,21 @@ export default async function DashboardPage() {
   if (!session?.user?.id) redirect("/login");
 
   const branding = await getBranding();
-  const data = await getDashboardData({
-    id: session.user.id,
-    isAdmin: session.user.isAdmin,
-    displayName: session.user.name,
-  });
+  const [data, checklistItems] = await Promise.all([
+    getDashboardData({
+      id: session.user.id,
+      isAdmin: session.user.isAdmin,
+      displayName: session.user.name,
+    }),
+    session.user.isAdmin ? getSetupChecklist() : Promise.resolve([]),
+  ]);
 
   return (
     <DashboardHome
       data={data}
       isAdmin={Boolean(session.user.isAdmin)}
       brandingName={branding.companyNameFa}
+      checklistItems={checklistItems}
     />
   );
 }

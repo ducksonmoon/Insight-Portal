@@ -275,3 +275,27 @@ export async function setReportPlacement(
     },
   });
 }
+
+export type ReportPlacement = {
+  moduleNameFa: string;
+  moduleSlug: string;
+  folderNameFa?: string;
+};
+
+export async function getReportPlacement(
+  reportSlug: string,
+): Promise<ReportPlacement | null> {
+  const row = await prisma.report.findUnique({
+    where: { slug: reportSlug },
+    include: {
+      module: { select: { slug: true, nameFa: true } },
+      folder: { select: { nameFa: true } },
+    },
+  });
+  if (!row) return null;
+  return {
+    moduleNameFa: row.module.nameFa,
+    moduleSlug: row.module.slug,
+    folderNameFa: row.folder?.nameFa,
+  };
+}

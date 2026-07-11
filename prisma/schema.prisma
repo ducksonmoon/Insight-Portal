@@ -226,6 +226,8 @@ model ReportSchedule {
   recipients   String    @db.NVarChar(Max)
   isActive     Boolean   @default(true)
   lastRunAt    DateTime?
+  lastRunStatus String?
+  lastRunError  String?   @db.NVarChar(Max)
   nextRunAt    DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt

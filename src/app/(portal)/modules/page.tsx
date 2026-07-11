@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function ModulesPage() {
   const session = await auth();
   if (!session?.user?.isAdmin) {
-    redirect("/");
+    redirect("/?denied=admin");
   }
 
   return (

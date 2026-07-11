@@ -71,7 +71,7 @@ function FolderReports({ folder }: { folder: OrgFolderNode }) {
 export default async function AdminReportsPage() {
   const session = await auth();
   if (!session?.user?.isAdmin) {
-    redirect("/");
+    redirect("/?denied=admin");
   }
 
   const organization = await loadReportOrganization();

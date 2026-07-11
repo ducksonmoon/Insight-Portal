@@ -6,6 +6,15 @@ import { Loader2, RefreshCw, Save } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { RolesManager } from "@/components/admin/roles-manager";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogCloseButton,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 
@@ -60,6 +69,9 @@ export function AccessManager({ initialTab = "users" }: AccessManagerProps) {
   const [reportIds, setReportIds] = useState<string[]>([]);
   const [roleIds, setRoleIds] = useState<string[]>([]);
   const [password, setPassword] = useState("");
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -126,12 +138,52 @@ export function AccessManager({ initialTab = "users" }: AccessManagerProps) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "ذخیره ناموفق");
       toast("دسترسی‌ها ذخیره شد", "success");
+      if (password) {
+        setGeneratedPassword(password);
+        setResetDialogOpen(true);
+      }
       setPassword("");
       await load();
     } catch (err) {
       toast(err instanceof Error ? err.message : "خطا", "error");
     } finally {
       setSaving(false);
+    }
+  }
+
+  function generateTempPassword() {
+    const chars = "abcdefghjkmnpqrstuvwxyz23456789";
+    let out = "";
+    for (let i = 0; i < 10; i++) {
+      out += chars[Math.floor(Math.random() * chars.length)];
+    }
+    setPassword(out);
+    setGeneratedPassword(out);
+    toast("رمز موقت ایجاد شد — پس از ذخیره به کاربر اطلاع دهید", "info");
+  }
+
+  async function resetPasswordOnly() {
+    if (!selectedUserId || !password) return;
+    setResetting(true);
+    try {
+      const res = await fetch("/api/admin/access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: selectedUserId,
+          setPassword: { password, isActive: true },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "خطا");
+      setGeneratedPassword(password);
+      setResetDialogOpen(true);
+      setPassword("");
+      toast("رمز عبور به‌روز شد", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "خطا", "error");
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -356,17 +408,39 @@ export function AccessManager({ initialTab = "users" }: AccessManagerProps) {
               )}
 
               {selectedUser ? (
-                <div className="grid gap-3 border-t border-[var(--border)] pt-4 md:grid-cols-[1fr_auto]">
-                  <label className="space-y-1 text-sm">
+                <div className="space-y-3 border-t border-[var(--border)] pt-4">
+                  <label className="block space-y-1 text-sm">
                     <span className="field-label">رمز عبور اپ (اختیاری)</span>
                     <Input
-                      type="password"
+                      type="text"
                       value={password}
                       placeholder="برای تغییر رمز پر کنید"
                       onChange={(e) => setPassword(e.target.value)}
+                      dir="ltr"
+                      autoComplete="off"
                     />
                   </label>
-                  <div className="flex items-end">
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={generateTempPassword}
+                    >
+                      ایجاد رمز موقت
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!password || resetting}
+                      onClick={() => void resetPasswordOnly()}
+                    >
+                      {resetting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : null}
+                      فقط تغییر رمز
+                    </Button>
                     <Button onClick={() => void save()} disabled={saving}>
                       {saving ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -382,6 +456,33 @@ export function AccessManager({ initialTab = "users" }: AccessManagerProps) {
           </div>
         </div>
       )}
+
+      <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+        <DialogContent showClose={false}>
+          <DialogHeader>
+            <DialogTitle>رمز عبور جدید</DialogTitle>
+            <DialogDescription>
+              این رمز فقط یک‌بار نمایش داده می‌شود. آن را به کاربر امن منتقل کنید.
+            </DialogDescription>
+          </DialogHeader>
+          <p
+            className="rounded-[var(--radius)] bg-[var(--surface-muted)] px-4 py-3 text-center font-mono text-lg"
+            dir="ltr"
+          >
+            {generatedPassword}
+          </p>
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                setResetDialogOpen(false);
+                setGeneratedPassword(null);
+              }}
+            >
+              متوجه شدم
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

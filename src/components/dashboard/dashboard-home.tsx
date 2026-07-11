@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Children, useCallback, useState } from "react";
+import { Children, Suspense, useCallback, useState } from "react";
 import {
   ArrowLeft,
   Bookmark,
@@ -21,8 +21,12 @@ import {
 } from "lucide-react";
 
 import { ReportSearch } from "@/components/dashboard/report-search";
+import { SetupChecklist } from "@/components/dashboard/setup-checklist";
+import { AccessDeniedBanner } from "@/components/layout/access-denied-banner";
+import { EmptyState } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import type { SetupChecklistItem } from "@/lib/dashboard/setup-checklist";
 import type { DashboardData } from "@/lib/dashboard/data";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +42,7 @@ type DashboardHomeProps = {
   data: DashboardData;
   isAdmin: boolean;
   brandingName: string;
+  checklistItems?: SetupChecklistItem[];
 };
 
 const toneClass: Record<string, string> = {
@@ -96,7 +101,7 @@ function KpiStrip({ kpis }: { kpis: DashboardData["userKpis"] }) {
   );
 }
 
-export function DashboardHome({ data, isAdmin, brandingName }: DashboardHomeProps) {
+export function DashboardHome({ data, isAdmin, brandingName, checklistItems = [] }: DashboardHomeProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [tab, setTab] = useState<"user" | "admin">("user");
@@ -197,47 +202,39 @@ export function DashboardHome({ data, isAdmin, brandingName }: DashboardHomeProp
 
   return (
     <div className="animate-stagger space-y-8">
-      <section className="dashboard-hero px-6 py-6 md:px-8 md:py-8">
-        <div className="relative z-10 flex flex-col gap-5">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="min-w-0">
-              <p className="text-sm text-white/80">
-                {data.displayName ? `سلام ${data.displayName}` : brandingName}
-              </p>
-              <h1 className="text-xl font-bold text-white md:text-2xl">
-                داشبورد شخصی
-              </h1>
-              <p className="mt-1 text-sm text-white/75">
-                {data.allowedReportCount} گزارش در دسترس · جستجو، اجرای سریع و ادامه کار
-              </p>
-            </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <Button
-                asChild
-                variant="secondary"
-                className="bg-white text-[var(--primary)] hover:bg-white/90"
-              >
-                <Link href="/reports">
-                  همه گزارش‌ها
-                  <ArrowLeft className="h-4 w-4" />
+      <Suspense fallback={null}>
+        <AccessDeniedBanner />
+      </Suspense>
+
+      <section className="dashboard-header-panel">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <p className="text-sm text-[var(--muted)]">
+              {data.displayName ? `سلام ${data.displayName}` : brandingName}
+            </p>
+            <h1 className="page-title">داشبورد</h1>
+            <p className="page-subtitle">
+              {data.allowedReportCount} گزارش در دسترس · جستجو و اجرای سریع
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href="/reports">
+                همه گزارش‌ها
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+            {isAdmin ? (
+              <Button asChild variant="outline">
+                <Link href="/admin/reports">
+                  <Settings2 className="h-4 w-4" />
+                  استودیو
                 </Link>
               </Button>
-              {isAdmin ? (
-                <Button
-                  asChild
-                  variant="outline"
-                  className="border-white/40 bg-transparent text-white hover:bg-white/10"
-                >
-                  <Link href="/admin/reports">
-                    <Settings2 className="h-4 w-4" />
-                    استودیو
-                  </Link>
-                </Button>
-              ) : null}
-            </div>
+            ) : null}
           </div>
-          <ReportSearch className="max-w-xl" placeholder="نام گزارش یا ماژول را جستجو کنید…" />
         </div>
+        <ReportSearch className="mt-4 max-w-xl" placeholder="نام گزارش یا ماژول را جستجو کنید…" />
       </section>
 
       {isAdmin ? (
@@ -261,6 +258,18 @@ export function DashboardHome({ data, isAdmin, brandingName }: DashboardHomeProp
 
       {tab === "user" ? (
         <>
+          {!data.moduleCards.length && !isAdmin ? (
+            <EmptyState
+              title="گزارشی برای شما فعال نیست"
+              description="با مدیر سیستم برای دریافت دسترسی به ماژول‌ها و گزارش‌ها تماس بگیرید."
+              action={
+                <Button asChild variant="outline">
+                  <Link href="/profile">پروفایل من</Link>
+                </Button>
+              }
+            />
+          ) : null}
+
           <div className="grid gap-4 lg:grid-cols-3">
             <PersonalPanel
               title="اخیراً"
@@ -436,10 +445,8 @@ export function DashboardHome({ data, isAdmin, brandingName }: DashboardHomeProp
 
           {widgets.filter((w) => w.type !== "chart" && w.type !== "report-pin")
             .length || widgets.some((w) => w.type === "chart") ? (
-            <details>
-              <summary className="mb-3 cursor-pointer list-none text-sm font-semibold text-[var(--muted)] hover:text-[var(--primary)]">
-                ویجت‌ها
-              </summary>
+            <section>
+              <h2 className="section-title mb-3">ویجت‌ها</h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {widgets.map((w) => {
                   if (w.type === "chart") {
@@ -486,13 +493,14 @@ export function DashboardHome({ data, isAdmin, brandingName }: DashboardHomeProp
                   );
                 })}
               </div>
-            </details>
+            </section>
           ) : null}
         </>
       ) : (
         <AdminTab
           data={data}
           widgets={widgets}
+          checklistItems={checklistItems}
           builderOpen={builderOpen}
           setBuilderOpen={setBuilderOpen}
           newWidget={newWidget}
@@ -537,6 +545,7 @@ function PersonalPanel({
 function AdminTab({
   data,
   widgets,
+  checklistItems,
   builderOpen,
   setBuilderOpen,
   newWidget,
@@ -547,6 +556,7 @@ function AdminTab({
 }: {
   data: DashboardData;
   widgets: DashboardData["widgets"];
+  checklistItems: SetupChecklistItem[];
   builderOpen: boolean;
   setBuilderOpen: (v: boolean) => void;
   newWidget: {
@@ -565,6 +575,7 @@ function AdminTab({
 }) {
   return (
     <div className="space-y-6">
+      {checklistItems.length ? <SetupChecklist items={checklistItems} /> : null}
       <KpiStrip kpis={data.systemKpis} />
 
       {data.migration ? (

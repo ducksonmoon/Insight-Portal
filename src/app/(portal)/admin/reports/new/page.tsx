@@ -9,7 +9,7 @@ type PageProps = {
 
 export default async function NewReportPage({ searchParams }: PageProps) {
   const session = await auth();
-  if (!session?.user?.isAdmin) redirect("/");
+  if (!session?.user?.isAdmin) redirect("/?denied=admin");
 
   const params = await searchParams;
 

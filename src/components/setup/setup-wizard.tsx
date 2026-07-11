@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 type Step = 1 | 2 | 3;
@@ -199,20 +200,18 @@ export function SetupWizard() {
           >
             {step === 1 ? (
               <div className="space-y-4">
-                <label className="block space-y-1.5 text-sm">
-                  <span className="font-semibold">نام شرکت (فارسی) *</span>
-                  <input
-                    className="h-11 w-full rounded-xl border border-[var(--border)] px-3"
+                <label className="block space-y-1">
+                  <span className="field-label">نام شرکت (فارسی) *</span>
+                  <Input
                     value={companyNameFa}
                     onChange={(e) => setCompanyNameFa(e.target.value)}
                     placeholder="مثلاً شرکت فولاد بوتیا"
                     required
                   />
                 </label>
-                <label className="block space-y-1.5 text-sm">
-                  <span className="font-semibold">نام شرکت (انگلیسی)</span>
-                  <input
-                    className="h-11 w-full rounded-xl border border-[var(--border)] px-3"
+                <label className="block space-y-1">
+                  <span className="field-label">نام شرکت (انگلیسی)</span>
+                  <Input
                     value={companyNameEn}
                     onChange={(e) => setCompanyNameEn(e.target.value)}
                     placeholder="Company Name"
@@ -220,18 +219,16 @@ export function SetupWizard() {
                   />
                 </label>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block space-y-1.5 text-sm">
-                    <span className="font-semibold">نام محصول (فارسی)</span>
-                    <input
-                      className="h-11 w-full rounded-xl border border-[var(--border)] px-3"
+                  <label className="block space-y-1">
+                    <span className="field-label">نام محصول (فارسی)</span>
+                    <Input
                       value={appNameFa}
                       onChange={(e) => setAppNameFa(e.target.value)}
                     />
                   </label>
-                  <label className="block space-y-1.5 text-sm">
-                    <span className="font-semibold">نام محصول (English)</span>
-                    <input
-                      className="h-11 w-full rounded-xl border border-[var(--border)] px-3"
+                  <label className="block space-y-1">
+                    <span className="field-label">نام محصول (English)</span>
+                    <Input
                       value={appNameEn}
                       onChange={(e) => setAppNameEn(e.target.value)}
                       dir="ltr"
@@ -239,20 +236,18 @@ export function SetupWizard() {
                   </label>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block space-y-1.5 text-sm">
-                    <span className="font-semibold">ایمیل پشتیبانی</span>
-                    <input
+                  <label className="block space-y-1">
+                    <span className="field-label">ایمیل پشتیبانی</span>
+                    <Input
                       type="email"
-                      className="h-11 w-full rounded-xl border border-[var(--border)] px-3"
                       value={supportEmail}
                       onChange={(e) => setSupportEmail(e.target.value)}
                       dir="ltr"
                     />
                   </label>
-                  <label className="block space-y-1.5 text-sm">
-                    <span className="font-semibold">تلفن پشتیبانی</span>
-                    <input
-                      className="h-11 w-full rounded-xl border border-[var(--border)] px-3"
+                  <label className="block space-y-1">
+                    <span className="field-label">تلفن پشتیبانی</span>
+                    <Input
                       value={supportPhone}
                       onChange={(e) => setSupportPhone(e.target.value)}
                       dir="ltr"
@@ -366,18 +361,16 @@ export function SetupWizard() {
 
             {step === 3 ? (
               <div className="space-y-4">
-                <label className="block space-y-1.5 text-sm">
-                  <span className="font-semibold">نام نمایشی مدیر</span>
-                  <input
-                    className="h-11 w-full rounded-xl border border-[var(--border)] px-3"
+                <label className="block space-y-1">
+                  <span className="field-label">نام نمایشی مدیر</span>
+                  <Input
                     value={adminDisplayName}
                     onChange={(e) => setAdminDisplayName(e.target.value)}
                   />
                 </label>
-                <label className="block space-y-1.5 text-sm">
-                  <span className="font-semibold">نام کاربری ادمین *</span>
-                  <input
-                    className="h-11 w-full rounded-xl border border-[var(--border)] px-3"
+                <label className="block space-y-1">
+                  <span className="field-label">نام کاربری ادمین *</span>
+                  <Input
                     value={adminUsername}
                     onChange={(e) => setAdminUsername(e.target.value)}
                     dir="ltr"
@@ -386,22 +379,20 @@ export function SetupWizard() {
                   />
                 </label>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block space-y-1.5 text-sm">
-                    <span className="font-semibold">رمز عبور *</span>
-                    <input
+                  <label className="block space-y-1">
+                    <span className="field-label">رمز عبور *</span>
+                    <Input
                       type="password"
-                      className="h-11 w-full rounded-xl border border-[var(--border)] px-3"
                       value={adminPassword}
                       onChange={(e) => setAdminPassword(e.target.value)}
                       autoComplete="new-password"
                       required
                     />
                   </label>
-                  <label className="block space-y-1.5 text-sm">
-                    <span className="font-semibold">تکرار رمز *</span>
-                    <input
+                  <label className="block space-y-1">
+                    <span className="field-label">تکرار رمز *</span>
+                    <Input
                       type="password"
-                      className="h-11 w-full rounded-xl border border-[var(--border)] px-3"
                       value={adminPassword2}
                       onChange={(e) => setAdminPassword2(e.target.value)}
                       autoComplete="new-password"

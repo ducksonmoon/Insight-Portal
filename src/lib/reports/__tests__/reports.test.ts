@@ -54,6 +54,28 @@ describe("rdl-parser", () => {
     expect(def.datasets[0]?.columns[0]?.header).toBeTruthy();
   });
 
+  it("uses DataField (SQL alias) as column field, not underscored Field Name", () => {
+    const rdl = `<?xml version="1.0" encoding="utf-8"?>
+<Report Name="Fa">
+  <DataSources><DataSource Name="Rahkaran"/></DataSources>
+  <DataSets>
+    <DataSet Name="Main">
+      <Query><DataSourceName>Rahkaran</DataSourceName><CommandText>SELECT 1 AS [تامین کننده]</CommandText></Query>
+      <Fields>
+        <Field Name="تامین_کننده"><DataField>تامین کننده</DataField></Field>
+      </Fields>
+    </DataSet>
+  </DataSets>
+</Report>`;
+    const parsed = parseRdlXml(rdl, "fa.rdl");
+    const def = rdlToReportDefinition(parsed, {
+      slug: "fa-report",
+      moduleId: "imported",
+    });
+    expect(def.columns[0]?.field).toBe("تامین کننده");
+    expect(def.datasets[0]?.columns[0]?.field).toBe("تامین کننده");
+  });
+
   it("converts to report definition", () => {
     const parsed = parseRdlXml(SAMPLE_RDL, "test.rdl");
     const def = rdlToReportDefinition(parsed, {

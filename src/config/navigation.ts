@@ -41,6 +41,7 @@ export const mainNavigation: NavItem[] = [
     title: "دستیار مالی",
     href: "/copilot",
     icon: MessageCircle,
+    adminOnly: true,
     description: "پرسش‌وپاسخ از دادهٔ زنده",
     group: "main",
   },

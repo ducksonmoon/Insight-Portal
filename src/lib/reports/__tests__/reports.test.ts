@@ -126,12 +126,16 @@ describe("parameter-utils", () => {
 describe("validate", () => {
   it("rejects empty definition", () => {
     const result = validateReportDefinition({
+      schemaVersion: 1,
       id: "",
       nameFa: "",
       moduleId: "m",
+      dataSourceId: "rahkaran",
+      sqlSource: { mode: "inline", text: "" },
       parameters: [],
       datasets: [],
       columns: [],
+      layout: [],
     });
     expect(result.ok).toBe(false);
     expect(result.issues.length).toBeGreaterThan(0);

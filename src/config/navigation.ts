@@ -4,6 +4,7 @@ import {
   ClipboardList,
   FolderKanban,
   LayoutDashboard,
+  MessageCircle,
   Paintbrush,
   Settings2,
   Shield,
@@ -34,6 +35,14 @@ export const mainNavigation: NavItem[] = [
     href: "/reports",
     icon: BarChart3,
     description: "اجرا و خروجی",
+    group: "main",
+  },
+  {
+    title: "دستیار مالی",
+    href: "/copilot",
+    icon: MessageCircle,
+    adminOnly: true,
+    description: "پرسش‌وپاسخ از دادهٔ زنده",
     group: "main",
   },
   {

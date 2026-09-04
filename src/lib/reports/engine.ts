@@ -173,6 +173,30 @@ function makeJoinKey(row: Record<string, unknown>, fields: string[]): string {
   return fields.map((f) => String(row[f] ?? "")).join("\u0001");
 }
 
+/**
+ * Align definition column.field to actual SQL result keys.
+ * RDL Field Names often use underscores while SELECT aliases use spaces.
+ */
+function alignColumnsToRows(
+  columns: ReportDefinition["columns"],
+  rows: Record<string, unknown>[],
+): ReportDefinition["columns"] {
+  if (!columns.length || !rows[0]) return columns;
+  const keys = Object.keys(rows[0]);
+  const keySet = new Set(keys);
+  const normalize = (s: string) => s.replace(/[\s_]+/g, "").toLowerCase();
+  const byNorm = new Map(keys.map((k) => [normalize(k), k]));
+
+  return columns.map((col) => {
+    if (keySet.has(col.field)) return col;
+    const matched = byNorm.get(normalize(col.field));
+    if (matched) {
+      return { ...col, field: matched, header: col.header || matched };
+    }
+    return col;
+  });
+}
+
 async function queryDatasetRows(options: {
   definition: ReportDefinition;
   dataset: ReportDataset;
@@ -262,7 +286,7 @@ async function executeDatasets(
       results[dataset.id] = {
         id: dataset.id,
         nameFa: dataset.nameFa,
-        columns: dataset.columns,
+        columns: alignColumnsToRows(dataset.columns, rows),
         rows,
         totalCount: rows.length,
         truncated,
@@ -302,7 +326,7 @@ async function executeDatasets(
     results[dataset.id] = {
       id: dataset.id,
       nameFa: dataset.nameFa,
-      columns: dataset.columns,
+      columns: alignColumnsToRows(dataset.columns, rows),
       rows,
       totalCount: rows.length,
       truncated,

@@ -15,10 +15,11 @@ White-label ready: company name, logo, colors, and admin account via a first-tim
 4. [Environment variables](#environment-variables)
 5. [First-time setup wizard](#first-time-setup-wizard)
 6. [How to use the product](#how-to-use-the-product)
-7. [Build & deploy on a server](#build--deploy-on-a-server)
-8. [Updating](#updating)
-9. [Troubleshooting](#troubleshooting)
-10. [Security checklist](#security-checklist)
+7. [Data-health scan (finance rule engine)](#data-health-scan-finance-rule-engine)
+8. [Build & deploy on a server](#build--deploy-on-a-server)
+9. [Updating](#updating)
+10. [Troubleshooting](#troubleshooting)
+11. [Security checklist](#security-checklist)
 
 ---
 
@@ -80,6 +81,8 @@ Open: [http://localhost:3000](http://localhost:3000)
 | `npm run db:seed`                   | Seed modules, sample reports, lookups    |
 | `npm run report:scaffold -- --id …` | Scaffold a report from a `.sql` file     |
 | `npm run rdl:import -- --dir …`     | Bulk import `.rdl` files from disk (CLI) |
+| `npm run scan`                      | Run the finance data-health scan (see below) |
+| `npm run scan:exception -- --list`  | Manage the scan's whitelist                  |
 
 ---
 
@@ -160,6 +163,10 @@ SMTP_SECURE=false
 SMTP_USER=
 SMTP_PASSWORD=
 SMTP_FROM=reports@company.com
+
+# Only needed for the payables-commitment rules in npm run scan — see below.
+# Two SL (معین) codes specific to this customer's chart of accounts.
+PAYABLES_WATCH_SL_CODES=211209,111413
 ```
 
 On Windows Server, if `trustServerCertificate` is required for internal SQL:
@@ -266,6 +273,76 @@ Details: [**Report packages guide**](./docs/guides/report-packages.md).
 
 ---
 
+## Data-health scan (finance rule engine)
+
+Separate from the report runtime above: a **read-only rule engine** that scans
+Rahkaran directly for finance defects a BI dashboard cannot see — accounting
+integrity problems (unbalanced vouchers, missing detail accounts) and daily
+operational exceptions (overdue receivable cheques, over-limit petty cash,
+payment orders already over-committed against a creditor's real balance).
+
+It never writes to Rahkaran. Every rule is read-only SQL under
+[`src/lib/rules/packs/`](./src/lib/rules/packs/); the engine and CLI are under
+[`src/lib/rules/`](./src/lib/rules/) and [`scripts/scan.ts`](./scripts/scan.ts).
+
+### Run a scan
+
+```bash
+# Everything (both packs, every module)
+npm run scan
+
+# Just the daily operational panel
+npm run scan -- --pack daily
+
+# Just data-integrity checks
+npm run scan -- --pack health
+
+# One module only
+npm run scan -- --module FIN
+
+# Machine-readable output
+npm run scan -- --json out.json
+
+# Printable sales-kit report (open in a browser, Ctrl+P → Save as PDF)
+npm run scan -- --report out.html --company "نام شرکت"
+```
+
+Requires `RAHKARAN_DB_*` in `.env.local` (same read-only connection the report
+runtime uses). Output includes a 0–100 health score, every rule that found
+something (worst first), a sample of offending rows, and the total amount at
+risk.
+
+### Whitelisting a finding
+
+Some findings are legitimate on a given company's books (an intentional
+opening balance, an account that never needed a detail level). Mark those
+reviewed so they stop reappearing — for that exact record only, never for the
+whole rule:
+
+```bash
+npm run scan:exception -- --add --rule fin.voucher.stale_temporary --entity 42 --note "سند افتتاحیه، عمداً موقت مانده"
+npm run scan:exception -- --list
+npm run scan:exception -- --remove --rule fin.voucher.stale_temporary --entity 42
+```
+
+This needs the `RuleException` table in the **app** database — run
+`npx prisma db push` once after pulling this feature. If that table doesn't
+exist yet, `npm run scan` still runs fine; it just prints a warning and shows
+unfiltered results instead of silently hiding anything.
+
+### Adding a rule / a new module
+
+Every rule is a plain object: read-only SQL projecting a fixed shape
+(`entity_id, title, detail, amount, ref_date`) plus Persian copy explaining
+what it means and why it matters. Add a file under `src/lib/rules/packs/`,
+export its rules, and register it in `src/lib/rules/packs/index.ts` — the
+engine, CLI, and scoring all pick it up with no other change. See
+[`src/lib/rules/personas.ts`](./src/lib/rules/personas.ts) for which manager
+(finance, warehouse, sales, …) each Rahkaran module belongs to and how much of
+the FBC report archive backs that module today.
+
+---
+
 ## Build & deploy on a server
 
 Full steps: [**Deploy & operations guide**](./docs/guides/deploy-and-ops.md).
@@ -313,6 +390,8 @@ After the migration pipeline release, `db push` adds `Report.sourceType` / `sour
 | Logo 404 after deploy             | Restore `public/uploads/branding` or re-upload in Settings      |
 | Auth callback issues behind HTTPS | `NEXTAUTH_URL` must match public URL exactly (`https://`)     |
 | RDL import / convert fails        | See [RDL migration guide](./docs/guides/rdl-migration.md)       |
+| `scan:exception` / whitelist has no effect | Run `npx prisma db push` to create the `RuleException` table |
+| Payables rules in `npm run scan` find nothing | Set `PAYABLES_WATCH_SL_CODES` to this customer's real SL codes |
 
 Dev logs: terminal where `npm run dev` runs.  
 Prod logs: `pm2 logs` or Windows service stdout.

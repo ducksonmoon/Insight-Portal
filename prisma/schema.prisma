@@ -311,6 +311,22 @@ model AuditLog {
   createdAt  DateTime @default(now())
 }
 
+/// A finding a human has reviewed and dismissed — "this is fine, stop flagging it".
+/// Keyed by rule + the specific record, not the whole rule, so accepting one
+/// legitimate case never hides the rest of that rule's real findings.
+model RuleException {
+  id        String   @id @default(cuid())
+  ruleId    String
+  /// Matches RuleFindingRow.entity_id, always stored as text.
+  entityId  String
+  note      String?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@unique([ruleId, entityId])
+  @@index([ruleId])
+}
+
 /// Singleton-style product branding / first-install settings (id = "default")
 model AppSettings {
   id              String   @id @default("default")

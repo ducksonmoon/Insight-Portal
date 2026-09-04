@@ -296,20 +296,30 @@ function inferFieldType(field: ParsedRdlField): "string" | "number" | "date" | "
   return "string";
 }
 
+/** SQL result key — prefer DataField (alias) over RDL Field Name (often underscored). */
+function sqlFieldKey(field: ParsedRdlField): string {
+  const dataField = field.dataField?.trim();
+  if (dataField) return dataField;
+  return field.name;
+}
+
 function headerForField(field: ParsedRdlField, headerLabels: string[]): string {
   const name = field.name;
+  const dataField = field.dataField?.trim();
   for (const label of headerLabels) {
     const clean = decodeXmlEntities(label).trim();
     if (!clean || clean.startsWith("=")) continue;
     if (
       clean === name ||
+      clean === dataField ||
+      (dataField && clean.includes(dataField)) ||
       clean.includes(name) ||
       clean.toLowerCase().includes(`fields!${name.toLowerCase()}`)
     ) {
-      return clean.replace(/^=Fields![^.]+\.Value$/i, name);
+      return clean.replace(/^=Fields![^.]+\.Value$/i, dataField || name);
     }
   }
-  return name;
+  return dataField || name;
 }
 
 function columnsForDataset(
@@ -322,7 +332,7 @@ function columnsForDataset(
   width: number;
 }> {
   return dataset.fields.map((f) => ({
-    field: f.name,
+    field: sqlFieldKey(f),
     header: headerForField(f, headerLabels),
     type: inferFieldType(f),
     width: 120,

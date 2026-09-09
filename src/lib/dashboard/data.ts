@@ -2,6 +2,8 @@ import { getRahkaranPool, isRahkaranConfigured } from "@/lib/db/rahkaran";
 import { prisma } from "@/lib/db/prisma";
 import { filterViewableReportIds } from "@/lib/auth/access";
 import type { AccessSessionUser } from "@/lib/auth/access";
+import { evaluateCondition, type ConditionNode } from "@/lib/entities/condition";
+import { getEntity } from "@/lib/entities/registry";
 import {
   loadReportOrganization,
   type OrgFolderNode,
@@ -76,7 +78,22 @@ export type DashboardWidgetItem = {
   type: string;
   config: Record<string, unknown>;
   sortOrder: number;
+  /** Server-computed payload for "rule-alerts" and "entity-kpi" widgets — see loadRuleAlertsWidgetData()/loadEntityKpiWidgetData() below. Absent for the older static widget types, which render straight from `config`. */
+  computed?: RuleAlertsComputed | EntityKpiComputed;
 };
+
+export type RuleAlertItem = {
+  id: string;
+  ruleDefId: string;
+  titleFa: string;
+  detailFa: string;
+  severity: "critical" | "high" | "medium" | "low";
+  amount: number | null;
+  lastSeenAt: string;
+};
+
+export type RuleAlertsComputed = { kind: "rule-alerts"; alerts: RuleAlertItem[] };
+export type EntityKpiComputed = { kind: "entity-kpi"; value: number; label: string };
 
 export type DashboardMigrationStats = {
   total: number;
@@ -165,6 +182,81 @@ function summarizeParams(params: Record<string, unknown>): string {
 
 function formatFaNumber(n: number): string {
   return new Intl.NumberFormat("en-US").format(Math.round(n));
+}
+
+const ALERT_SEVERITY_ORDER = ["critical", "high", "medium", "low"] as const;
+
+/**
+ * Top open findings across every rule, worst severity first — the brief's
+ * "🔴 Critical Alerts" panel. Reads RuleFinding directly (already persisted
+ * by the rule engine — see docs/architecture/management-intelligence-platform.md
+ * Phase 1/2), never Rahkaran: a dashboard widget must not add live ERP load
+ * on every page view. One query per severity bucket rather than a single
+ * query with a custom ORDER BY, so a rare critical finding can never be
+ * pushed out of the list by a flood of low-severity ones.
+ */
+async function loadRuleAlertsWidgetData(limit: number): Promise<RuleAlertsComputed> {
+  const alerts: RuleAlertItem[] = [];
+
+  for (const severity of ALERT_SEVERITY_ORDER) {
+    if (alerts.length >= limit) break;
+    const rows = await prisma.ruleFinding.findMany({
+      where: { status: { in: ["new", "acknowledged"] }, severity },
+      orderBy: { lastSeenAt: "desc" },
+      take: limit - alerts.length,
+    });
+    alerts.push(
+      ...rows.map((row) => ({
+        id: row.id,
+        ruleDefId: row.ruleDefId,
+        titleFa: row.titleFa,
+        detailFa: row.detailFa,
+        severity: row.severity as RuleAlertItem["severity"],
+        amount: row.amount,
+        lastSeenAt: row.lastSeenAt.toISOString(),
+      })),
+    );
+  }
+
+  return { kind: "rule-alerts", alerts };
+}
+
+/**
+ * A single number off a materialized Business Entity — count of records, or
+ * the sum of one numeric field. Reads EntityRecord (already synced by the
+ * rule engine), same "never live-query Rahkaran from a dashboard view" rule
+ * as loadRuleAlertsWidgetData(). An optional condition (the same DSL the
+ * Entity Rule Builder uses — src/lib/entities/condition.ts) narrows which
+ * records count, e.g. "overdue only".
+ */
+async function loadEntityKpiWidgetData(config: Record<string, unknown>): Promise<EntityKpiComputed | null> {
+  const entityKey = typeof config.entityKey === "string" ? config.entityKey : null;
+  const metric = config.metric === "sum" ? "sum" : "count";
+  const field = typeof config.field === "string" ? config.field : null;
+  const label = typeof config.label === "string" && config.label ? config.label : null;
+  if (!entityKey) return null;
+
+  const entity = getEntity(entityKey);
+  if (!entity) return null;
+
+  const rows = await prisma.entityRecord.findMany({ where: { entityKey }, select: { data: true } });
+  let records = rows.map((row) => JSON.parse(row.data) as Record<string, unknown>);
+
+  const condition = config.condition as ConditionNode | undefined;
+  if (condition) {
+    records = records.filter((record) => evaluateCondition(condition, record));
+  }
+
+  const value =
+    metric === "sum" && field
+      ? records.reduce((sum, record) => sum + (Number(record[field]) || 0), 0)
+      : records.length;
+
+  return {
+    kind: "entity-kpi",
+    value,
+    label: label ?? (metric === "sum" ? `مجموع ${entity.labelFa}` : `تعداد ${entity.labelFa}`),
+  };
 }
 
 export async function ensureDefaultDashboardWidgets() {
@@ -520,6 +612,22 @@ export async function getDashboardData(
       }
     : null;
 
+  const widgetItems: DashboardWidgetItem[] = await Promise.all(
+    widgets.map(async (w) => {
+      const config = JSON.parse(w.config) as Record<string, unknown>;
+      let computed: RuleAlertsComputed | EntityKpiComputed | undefined;
+
+      if (w.type === "rule-alerts") {
+        const limit = typeof config.limit === "number" ? config.limit : 8;
+        computed = await loadRuleAlertsWidgetData(limit);
+      } else if (w.type === "entity-kpi") {
+        computed = (await loadEntityKpiWidgetData(config)) ?? undefined;
+      }
+
+      return { id: w.id, title: w.title, type: w.type, config, sortOrder: w.sortOrder, computed };
+    }),
+  );
+
   return {
     userKpis,
     systemKpis,
@@ -529,13 +637,7 @@ export async function getDashboardData(
     moduleCards,
     pinnedReports,
     schedules,
-    widgets: widgets.map((w) => ({
-      id: w.id,
-      title: w.title,
-      type: w.type,
-      config: JSON.parse(w.config) as Record<string, unknown>,
-      sortOrder: w.sortOrder,
-    })),
+    widgets: widgetItems,
     migration,
     rahkaranConnected,
     allowedReportCount: allowedIds.length,

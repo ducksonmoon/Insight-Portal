@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Children, Suspense, useCallback, useState } from "react";
+import { Children, Suspense, useCallback, useEffect, useState } from "react";
 import {
   ArrowLeft,
   Bookmark,
@@ -14,6 +14,7 @@ import {
   Loader2,
   Play,
   Settings2,
+  ShieldAlert,
   Star,
   Trash2,
   AlertTriangle,
@@ -27,8 +28,29 @@ import { EmptyState } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import type { SetupChecklistItem } from "@/lib/dashboard/setup-checklist";
-import type { DashboardData } from "@/lib/dashboard/data";
+import type { DashboardData, RuleAlertsComputed, EntityKpiComputed } from "@/lib/dashboard/data";
 import { cn } from "@/lib/utils";
+
+const SEVERITY_LABEL_FA: Record<string, string> = {
+  critical: "بحرانی",
+  high: "مهم",
+  medium: "متوسط",
+  low: "کم",
+};
+const SEVERITY_DOT: Record<string, string> = {
+  critical: "bg-[var(--danger)]",
+  high: "bg-[var(--warning)]",
+  medium: "bg-[var(--primary)]",
+  low: "bg-[var(--muted)]",
+};
+
+function formatAmount(n: number | null): string {
+  if (n == null) return "—";
+  return new Intl.NumberFormat("fa-IR").format(Math.round(n));
+}
+
+type EntityFieldMeta = { key: string; labelFa: string; type: string };
+type EntityMeta = { key: string; labelFa: string; fields: EntityFieldMeta[] };
 
 const ChartPreview = dynamic(
   () =>
@@ -106,6 +128,7 @@ export function DashboardHome({ data, isAdmin, brandingName, checklistItems = []
   const { toast } = useToast();
   const [tab, setTab] = useState<"user" | "admin">("user");
   const [widgets, setWidgets] = useState(data.widgets);
+  const [entities, setEntities] = useState<EntityMeta[]>([]);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [newWidget, setNewWidget] = useState({
     title: "",
@@ -115,8 +138,20 @@ export function DashboardHome({ data, isAdmin, brandingName, checklistItems = []
     label: "مشاهده",
     text: "",
     chartIndex: 0,
+    alertLimit: 8,
+    entityKey: "",
+    metric: "count" as "count" | "sum",
+    field: "",
   });
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetch("/api/entities")
+      .then((res) => res.json())
+      .then((body) => setEntities(body.entities ?? []))
+      .catch(() => {});
+  }, [isAdmin]);
 
   const quickRunHref = useCallback(
     (reportSlug: string, viewId?: string, hasRequired?: boolean) => {
@@ -146,6 +181,14 @@ export function DashboardHome({ data, isAdmin, brandingName, checklistItems = []
         };
       } else if (newWidget.type === "report-pin") {
         config = { reportSlug: newWidget.reportSlug };
+      } else if (newWidget.type === "rule-alerts") {
+        config = { limit: newWidget.alertLimit };
+      } else if (newWidget.type === "entity-kpi") {
+        config = {
+          entityKey: newWidget.entityKey,
+          metric: newWidget.metric,
+          ...(newWidget.metric === "sum" ? { field: newWidget.field } : {}),
+        };
       }
 
       const res = await fetch("/api/admin/dashboard-widgets", {
@@ -179,8 +222,12 @@ export function DashboardHome({ data, isAdmin, brandingName, checklistItems = []
         label: "مشاهده",
         text: "",
         chartIndex: 0,
+        alertLimit: 8,
+        entityKey: "",
+        metric: "count",
+        field: "",
       });
-      toast("ویجت اضافه شد", "success");
+      toast("ویجت اضافه شد — برای محاسبهٔ مقدار، صفحه را بازخوانی کنید", "success");
     } catch (err) {
       toast(err instanceof Error ? err.message : "خطا", "error");
     } finally {
@@ -466,6 +513,67 @@ export function DashboardHome({ data, isAdmin, brandingName, checklistItems = []
                     );
                   }
                   if (w.type === "report-pin") return null;
+                  if (w.type === "rule-alerts") {
+                    const computed = w.computed?.kind === "rule-alerts" ? (w.computed as RuleAlertsComputed) : null;
+                    return (
+                      <div
+                        key={w.id}
+                        className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4 sm:col-span-2"
+                      >
+                        <div className="mb-2 flex items-center gap-2">
+                          <ShieldAlert className="h-4 w-4 text-[var(--danger)]" />
+                          <p className="font-semibold">{w.title}</p>
+                        </div>
+                        {!computed ? (
+                          <p className="text-sm text-[var(--muted)]">پس از بازخوانی صفحه نمایش داده می‌شود.</p>
+                        ) : !computed.alerts.length ? (
+                          <p className="text-sm text-[var(--success)]">هشدار بازی وجود ندارد.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {computed.alerts.map((alert) => (
+                              <Link
+                                key={alert.id}
+                                href={`/admin/rules?rule=${alert.ruleDefId}`}
+                                className="flex items-start gap-2 rounded-[var(--radius)] border border-[var(--border)] p-2 text-sm hover:bg-[var(--surface-muted)]"
+                              >
+                                <span
+                                  className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", SEVERITY_DOT[alert.severity])}
+                                />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate font-semibold">{alert.titleFa}</span>
+                                  <span className="block truncate text-xs text-[var(--muted)]">
+                                    {SEVERITY_LABEL_FA[alert.severity]}
+                                    {alert.amount != null ? ` · ${formatAmount(alert.amount)} ریال` : ""}
+                                  </span>
+                                </span>
+                              </Link>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+                  if (w.type === "entity-kpi") {
+                    const computed = w.computed?.kind === "entity-kpi" ? (w.computed as EntityKpiComputed) : null;
+                    return (
+                      <div
+                        key={w.id}
+                        className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4"
+                      >
+                        <p className="font-semibold">{w.title}</p>
+                        {computed ? (
+                          <>
+                            <p className="mt-2 text-2xl font-bold text-[var(--primary)]">
+                              {formatAmount(computed.value)}
+                            </p>
+                            <p className="mt-0.5 text-xs text-[var(--muted)]">{computed.label}</p>
+                          </>
+                        ) : (
+                          <p className="mt-2 text-sm text-[var(--muted)]">پس از بازخوانی صفحه نمایش داده می‌شود.</p>
+                        )}
+                      </div>
+                    );
+                  }
                   return (
                     <div
                       key={w.id}
@@ -500,6 +608,7 @@ export function DashboardHome({ data, isAdmin, brandingName, checklistItems = []
         <AdminTab
           data={data}
           widgets={widgets}
+          entities={entities}
           checklistItems={checklistItems}
           builderOpen={builderOpen}
           setBuilderOpen={setBuilderOpen}
@@ -545,6 +654,7 @@ function PersonalPanel({
 function AdminTab({
   data,
   widgets,
+  entities,
   checklistItems,
   builderOpen,
   setBuilderOpen,
@@ -556,6 +666,7 @@ function AdminTab({
 }: {
   data: DashboardData;
   widgets: DashboardData["widgets"];
+  entities: EntityMeta[];
   checklistItems: SetupChecklistItem[];
   builderOpen: boolean;
   setBuilderOpen: (v: boolean) => void;
@@ -567,12 +678,18 @@ function AdminTab({
     label: string;
     text: string;
     chartIndex: number;
+    alertLimit: number;
+    entityKey: string;
+    metric: "count" | "sum";
+    field: string;
   };
   setNewWidget: React.Dispatch<React.SetStateAction<typeof newWidget>>;
   saving: boolean;
   onAddWidget: () => void;
   onRemoveWidget: (id: string) => void;
 }) {
+  const selectedEntity = entities.find((e) => e.key === newWidget.entityKey);
+  const numericFields = selectedEntity?.fields.filter((f) => f.type === "number") ?? [];
   return (
     <div className="space-y-6">
       {checklistItems.length ? <SetupChecklist items={checklistItems} /> : null}
@@ -654,7 +771,58 @@ function AdminTab({
               <option value="kpi">KPI</option>
               <option value="chart">نمودار گزارش</option>
               <option value="report-pin">پین اجرای سریع</option>
+              <option value="rule-alerts">هشدارهای قوانین</option>
+              <option value="entity-kpi">KPI موجودیت</option>
             </select>
+            {newWidget.type === "rule-alerts" ? (
+              <input
+                className="input-field"
+                type="number"
+                min={1}
+                max={20}
+                placeholder="حداکثر تعداد (پیش‌فرض ۸)"
+                value={newWidget.alertLimit}
+                onChange={(e) => setNewWidget((w) => ({ ...w, alertLimit: Number(e.target.value) }))}
+              />
+            ) : null}
+            {newWidget.type === "entity-kpi" ? (
+              <>
+                <select
+                  className="input-field"
+                  value={newWidget.entityKey}
+                  onChange={(e) => setNewWidget((w) => ({ ...w, entityKey: e.target.value, field: "" }))}
+                >
+                  <option value="">— انتخاب موجودیت —</option>
+                  {entities.map((entity) => (
+                    <option key={entity.key} value={entity.key}>
+                      {entity.labelFa}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="input-field"
+                  value={newWidget.metric}
+                  onChange={(e) => setNewWidget((w) => ({ ...w, metric: e.target.value as "count" | "sum" }))}
+                >
+                  <option value="count">تعداد رکورد</option>
+                  <option value="sum">مجموع یک فیلد عددی</option>
+                </select>
+                {newWidget.metric === "sum" ? (
+                  <select
+                    className="input-field sm:col-span-2"
+                    value={newWidget.field}
+                    onChange={(e) => setNewWidget((w) => ({ ...w, field: e.target.value }))}
+                  >
+                    <option value="">— انتخاب فیلد —</option>
+                    {numericFields.map((f) => (
+                      <option key={f.key} value={f.key}>
+                        {f.labelFa}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+              </>
+            ) : null}
             {newWidget.type === "report-link" ? (
               <>
                 <input

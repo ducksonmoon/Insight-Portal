@@ -10,6 +10,7 @@ Guides for admins, implementers, and migration from legacy Rahkaran / SSRS RDL.
 | [Report grid](./guides/report-grid.md) | End users + admins | Toolbar, search, CSV vs Excel, pagination |
 | [Deploy & operations](./guides/deploy-and-ops.md) | DevOps / IT | Install, update, PM2, HTTPS, troubleshooting |
 | [UI patterns](./guides/ui-patterns.md) | Implementers | PageHeader, forms, surfaces, tokens |
+| [Management Intelligence Platform — architecture](./architecture/management-intelligence-platform.md) | Implementers | Semantic layer, Rule Engine v2, Notification Center, roadmap |
 
 **Main project README:** [../README.md](../README.md)
 

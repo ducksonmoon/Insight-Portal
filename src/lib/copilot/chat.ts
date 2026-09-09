@@ -17,7 +17,18 @@
  *                 Ollama install or model was available in the environment
  *                 this was written in.
  */
-import { listReports, listRules, runReportTool, runRuleTool } from "./tools";
+import type { ConditionNode } from "@/lib/entities/condition";
+import {
+  entitySummaryTool,
+  explainFindingTool,
+  listEntitiesTool,
+  listOpenFindingsTool,
+  listReports,
+  listRules,
+  queryEntityRecordsTool,
+  runReportTool,
+  runRuleTool,
+} from "./tools";
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "qwen2.5:14b-instruct";
@@ -32,6 +43,12 @@ const SYSTEM_PROMPT = `
 - اگر مطمئن نیستی کدام گزارش/قانون مرتبط است، اول list_reports و list_rules را ببین.
 - اگر گزارش نیاز به پارامتری دارد که کاربر نگفته (مثلاً بازهٔ تاریخ)، یا آن را از متن استنباط کن یا بپرس.
 - جواب را کوتاه، فارسی و مستقیم بده. مبلغ‌ها را با جداکنندهٔ هزارگان و واحد «ریال» بگو.
+
+برای سؤالاتی مثل «بزرگ‌ترین ریسک مالی الان چیست؟» یا «چرا این هشدار صادر شد؟» یا «مجموع فلان چیز چقدر است؟»:
+- list_open_findings را برای دیدن هشدارهای باز (به ترتیب اهمیت) صدا بزن — این‌ها همین الان توسط موتور قوانین محاسبه شده‌اند، نیازی به اجرای دوبارهٔ چیزی نیست.
+- explain_finding را برای توضیح یک یافتهٔ خاص (چرا صادر شد، چه اهمیتی دارد، چه اقدامی پیشنهاد می‌شود) صدا بزن.
+- list_entities و entity_summary را برای شمارش/مجموع روی یک موجودیت کسب‌وکاری (مثلاً چک‌های دریافتنی باز) صدا بزن.
+- query_entity_records را وقتی کاربر یک فیلتر مشخص می‌خواهد (مثلاً «چک‌های بیش از ۳۰ روز عقب‌افتاده») صدا بزن — condition باید دقیقاً از فیلدهای همان موجودیت (از entity_summary) استفاده کند.
 `.trim();
 
 interface OllamaToolCall {
@@ -98,6 +115,75 @@ const TOOL_SCHEMAS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "list_open_findings",
+      description:
+        "هشدارهای باز (از قبل محاسبه‌شده توسط موتور قوانین) را به ترتیب شدت برمی‌گرداند — بدون اجرای دوبارهٔ کوئری روی راهکاران. برای سؤالاتی مثل «چه مشکلاتی الان باز است؟» یا «بزرگ‌ترین ریسک چیست؟».",
+      parameters: {
+        type: "object",
+        properties: {
+          severity: { type: "string", enum: ["critical", "high", "medium", "low"], description: "فیلتر شدت (اختیاری)" },
+          limit: { type: "number", description: "حداکثر تعداد (پیش‌فرض ۱۰)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "explain_finding",
+      description: "جزئیات کامل یک هشدار مشخص را برمی‌گرداند: چرا صادر شد، چه اهمیتی دارد، چه اقدامی پیشنهاد می‌شود.",
+      parameters: {
+        type: "object",
+        properties: { findingId: { type: "string", description: "شناسهٔ یافته، از خروجی list_open_findings" } },
+        required: ["findingId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_entities",
+      description: "فهرست موجودیت‌های کسب‌وکاری (Business Entity) موجود و فیلدهای هرکدام را برمی‌گرداند.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "entity_summary",
+      description: "تعداد رکوردها و مجموع هر فیلد عددی یک موجودیت کسب‌وکاری را برمی‌گرداند — برای سؤالاتی مثل «مجموع چک‌های دریافتنی باز چقدر است؟».",
+      parameters: {
+        type: "object",
+        properties: { entityKey: { type: "string", description: "کلید موجودیت، از خروجی list_entities" } },
+        required: ["entityKey"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_entity_records",
+      description:
+        "رکوردهای یک موجودیت را با یک شرط فیلتر می‌کند (فقط روی فیلدهای اعلام‌شدهٔ همان موجودیت). برای سؤالاتی مثل «کدام چک‌ها بیش از ۳۰ روز عقب‌افتاده‌اند؟».",
+      parameters: {
+        type: "object",
+        properties: {
+          entityKey: { type: "string", description: "کلید موجودیت، از خروجی list_entities" },
+          condition: {
+            type: "object",
+            description:
+              'درخت شرط: یا {"field":"...","op":"eq|ne|lt|lte|gt|gte|in|contains","value":...} یا {"all":[...]} یا {"any":[...]}',
+          },
+          limit: { type: "number", description: "حداکثر تعداد نمونه (پیش‌فرض ۱۰)" },
+        },
+        required: ["entityKey"],
+      },
+    },
+  },
 ];
 
 async function executeTool(
@@ -120,6 +206,27 @@ async function executeTool(
       return JSON.stringify(listRules());
     case "run_rule":
       return JSON.stringify(await runRuleTool(String(args.ruleId ?? "")));
+    case "list_open_findings":
+      return JSON.stringify(
+        await listOpenFindingsTool({
+          severity: typeof args.severity === "string" ? args.severity : undefined,
+          limit: typeof args.limit === "number" ? args.limit : undefined,
+        }),
+      );
+    case "explain_finding":
+      return JSON.stringify(await explainFindingTool(String(args.findingId ?? "")));
+    case "list_entities":
+      return JSON.stringify(listEntitiesTool());
+    case "entity_summary":
+      return JSON.stringify(await entitySummaryTool(String(args.entityKey ?? "")));
+    case "query_entity_records":
+      return JSON.stringify(
+        await queryEntityRecordsTool(
+          String(args.entityKey ?? ""),
+          args.condition as ConditionNode | undefined,
+          typeof args.limit === "number" ? args.limit : undefined,
+        ),
+      );
     default:
       return JSON.stringify({ error: `ابزار ناشناخته: ${name}` });
   }

@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   MessageCircle,
   Paintbrush,
+  ShieldAlert,
   Settings2,
   Shield,
   FileCode2,
@@ -68,6 +69,14 @@ export const mainNavigation: NavItem[] = [
     adminOnly: true,
     description: "اجرای خودکار",
     group: "reports",
+  },
+  {
+    title: "موتور قوانین",
+    href: "/admin/rules",
+    icon: ShieldAlert,
+    adminOnly: true,
+    description: "سلامت داده و هشدارها",
+    group: "admin",
   },
   {
     title: "ماژول‌ها",

@@ -27,6 +27,7 @@ model User {
   savedViews     SavedReportView[]
   favorites      ReportFavorite[]
   schedules      ReportSchedule[]
+  notifications  Notification[]
   locale         String   @default("fa")
 }
 
@@ -325,6 +326,141 @@ model RuleException {
 
   @@unique([ruleId, entityId])
   @@index([ruleId])
+}
+
+/// Persisted configuration for a rule — either wrapping a code-defined Rule
+/// (src/lib/rules/packs/*.ts, kind "predefined", created lazily the first
+/// time the rules admin page or a scheduled run touches it) or a
+/// business-user-authored rule built in the Entity Rule Builder (kind
+/// "custom" — Phase 4 of docs/architecture/management-intelligence-platform.md
+/// §14). `ruleCode` stays required+unique either way — a custom rule gets a
+/// synthetic "custom.<id>" code — so every other table that keys off it
+/// (RuleRun, RuleFinding, notification links) doesn't need to know which
+/// kind it's looking at.
+model RuleDefinition {
+  id         String   @id @default(cuid())
+  /// predefined | custom
+  kind       String   @default("predefined")
+  /// Matches Rule.id from src/lib/rules/packs for "predefined"; synthetic "custom.<id>" for "custom".
+  ruleCode   String   @unique
+  /// custom only — display name (predefined rules get titleFa from the pack).
+  titleFa    String?
+  /// custom only — which BusinessEntityDef (src/lib/entities/) this rule reads.
+  entityKey  String?
+  /// custom only — the ConditionNode tree (src/lib/entities/condition.ts), JSON.
+  conditionJson String? @db.NVarChar(Max)
+  /// custom only — critical | high | medium | low (predefined rules get severity from the pack).
+  severity   String?
+  createdBy  String?
+  isEnabled  Boolean  @default(true)
+  /// Threshold overrides for the rule's RuleParam[]. JSON Record<string, number>.
+  paramsJson String?  @db.NVarChar(Max)
+  /// daily | hourly | weekly
+  frequency  String   @default("daily")
+  /// HH:mm 24h
+  runAt      String   @default("07:00")
+  lastRunAt  DateTime?
+  nextRunAt  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  runs     RuleRun[]
+  findings RuleFinding[]
+
+  @@index([isEnabled, nextRunAt])
+}
+
+/// One row per execution of a RuleDefinition — history for the admin UI and
+/// for diagnosing a schedule that stopped working.
+model RuleRun {
+  id            String         @id @default(cuid())
+  ruleDefId     String
+  ruleDef       RuleDefinition @relation(fields: [ruleDefId], references: [id], onDelete: Cascade)
+  runAt         DateTime       @default(now())
+  durationMs    Int
+  /// ok | error
+  status        String
+  findingCount  Int            @default(0)
+  newCount      Int            @default(0)
+  resolvedCount Int            @default(0)
+  totalAmount   Float?
+  error         String?        @db.NVarChar(Max)
+  /// "schedule" | "manual:<userId>"
+  triggeredBy   String?
+
+  @@index([ruleDefId, runAt])
+}
+
+/// The lifecycle state of one still-relevant finding for one rule + entity.
+/// Distinct from RuleException (a permanent "this row is fine, stop flagging
+/// it" whitelist): this tracks whether a currently-valid finding is new,
+/// has been looked at, or has resolved itself since the last run.
+model RuleFinding {
+  id             String         @id @default(cuid())
+  ruleDefId      String
+  ruleDef        RuleDefinition @relation(fields: [ruleDefId], references: [id], onDelete: Cascade)
+  /// Matches RuleFindingRow.entity_id, always stored as text.
+  entityId       String
+  /// new | acknowledged | resolved
+  status         String         @default("new")
+  severity       String
+  titleFa        String
+  detailFa       String         @db.NVarChar(Max)
+  amount         Float?
+  refDate        DateTime?
+  firstSeenAt    DateTime       @default(now())
+  lastSeenAt     DateTime       @updatedAt
+  resolvedAt     DateTime?
+  resolvedBy     String?
+  acknowledgedAt DateTime?
+  acknowledgedBy String?
+
+  @@unique([ruleDefId, entityId])
+  @@index([ruleDefId, status])
+}
+
+/// One row per (user, event) — a finding turning "new" or reopening notifies
+/// every active admin individually, so read/unread state is per-person, not
+/// a single shared flag. Phase 2 of docs/architecture/management-intelligence-platform.md.
+model Notification {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// critical | high | medium | low | info
+  severity   String
+  title      String
+  body       String    @db.NVarChar(Max)
+  /// "rule_finding" today; other sources (schedule_failure, …) can reuse this table later.
+  sourceType String
+  sourceId   String?
+  linkHref   String?
+  readAt     DateTime?
+  /// Set once this row has been folded into an email digest, so the digest job never repeats itself.
+  emailedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+/// A materialized snapshot of one Business Entity's current rows — Phase 3 of
+/// docs/architecture/management-intelligence-platform.md §5/§8. Populated by
+/// syncEntity() (src/lib/entities/sync.ts) immediately before an
+/// entity-backed rule evaluates; this is a pull-based snapshot, not a live
+/// view or a change-tracked history. `data` holds the entity definition's
+/// typed fields as JSON — deliberately generic (no per-entity table) since
+/// Phase 3 only has one entity; promote to a physical table if/when an
+/// entity's query volume actually needs it (see §5.2).
+model EntityRecord {
+  id          String   @id @default(cuid())
+  entityKey   String
+  externalId  String
+  data        String   @db.NVarChar(Max)
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @updatedAt
+
+  @@unique([entityKey, externalId])
+  @@index([entityKey])
 }
 
 /// Singleton-style product branding / first-install settings (id = "default")

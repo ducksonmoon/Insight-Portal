@@ -81,8 +81,9 @@ Open: [http://localhost:3000](http://localhost:3000)
 | `npm run db:seed`                   | Seed modules, sample reports, lookups    |
 | `npm run report:scaffold -- --id …` | Scaffold a report from a `.sql` file     |
 | `npm run rdl:import -- --dir …`     | Bulk import `.rdl` files from disk (CLI) |
-| `npm run scan`                      | Run the finance data-health scan (see below) |
+| `npm run scan`                      | Run the finance data-health scan from the CLI (see below) |
 | `npm run scan:exception -- --list`  | Manage the scan's whitelist                  |
+| `npm run rules:run`                 | Run due rule schedules and persist findings (see below) |
 
 ---
 
@@ -285,7 +286,37 @@ It never writes to Rahkaran. Every rule is read-only SQL under
 [`src/lib/rules/packs/`](./src/lib/rules/packs/); the engine and CLI are under
 [`src/lib/rules/`](./src/lib/rules/) and [`scripts/scan.ts`](./scripts/scan.ts).
 
-### Run a scan
+### Web UI: **`/admin/rules`**
+
+The CLI scan above always re-computes everything from a cold start. The admin
+page persists the same engine's output instead: enable/disable a rule, tune
+its thresholds, set a schedule (hourly/daily/weekly), and see each finding's
+lifecycle (new → acknowledged → resolved, auto-reopened if it comes back).
+
+```bash
+# Run every enabled rule whose schedule is due, persist findings — call this
+# from Task Scheduler/cron the same way as npm run schedules:run.
+npm run rules:run
+```
+
+### Notification Center
+
+Every finding that turns "new" (or reopens after being resolved) notifies
+every active admin — an in-app bell (top right, any page) and, once a day,
+an email digest. Findings that were already open don't re-notify on every
+scheduled run.
+
+```bash
+# Email each admin their not-yet-emailed notifications (needs SMTP_* — see
+# above). Run a few minutes after npm run rules:run, on its own schedule.
+npm run notifications:digest
+```
+
+Architecture and roadmap (semantic entities, a business-user rule builder):
+see
+[docs/architecture/management-intelligence-platform.md](./docs/architecture/management-intelligence-platform.md).
+
+### Run a scan (CLI)
 
 ```bash
 # Everything (both packs, every module)
@@ -330,6 +361,11 @@ This needs the `RuleException` table in the **app** database — run
 exist yet, `npm run scan` still runs fine; it just prints a warning and shows
 unfiltered results instead of silently hiding anything.
 
+The `/admin/rules` web UI and `npm run rules:run` need three more tables
+(`RuleDefinition`, `RuleRun`, `RuleFinding`) — also added by
+`npx prisma db push`. The Notification Center needs one more (`Notification`),
+and the semantic layer one more (`EntityRecord`), same command.
+
 ### Adding a rule / a new module
 
 Every rule is a plain object: read-only SQL projecting a fixed shape
@@ -340,6 +376,43 @@ engine, CLI, and scoring all pick it up with no other change. See
 [`src/lib/rules/personas.ts`](./src/lib/rules/personas.ts) for which manager
 (finance, warehouse, sales, …) each Rahkaran module belongs to and how much of
 the FBC report archive backs that module today.
+
+A rule can instead read a **Business Entity** — a materialized, typed
+snapshot of ERP data under [`src/lib/entities/`](./src/lib/entities/) —
+rather than querying Rahkaran directly. Worth it once two or more rules
+would otherwise repeat the same query with only their `WHERE` clause
+differing (see `rpa.receivable.overdue_uncollected` and
+`rpa.receivable.due_soon` for the reference example, both reading the
+`Receivable` entity). Set `kind: "entity"`, `entityKey`, and `evaluate`
+instead of `sql`; the engine syncs the entity fresh before evaluating.
+
+### Entity Rule Builder — custom rules without code
+
+On `/admin/rules`, **قانون سفارشی جدید** lets an admin build a rule over any
+declared entity's fields (WHEN field · operator · value, AND-joined) without
+touching code — pick an entity, add conditions, set severity and schedule.
+Runs through the exact same engine as a code-defined rule; its finding text
+is generated generically from the entity's field labels rather than
+hand-written Persian copy. See §14 (Phase 4) of
+[docs/architecture/management-intelligence-platform.md](./docs/architecture/management-intelligence-platform.md)
+for the design and its current limits (AND-only in the UI, one entity today).
+
+### Dashboard widgets: alerts and entity KPIs
+
+The home dashboard's widget builder (admin tab → «سازنده ویجت») can add two
+data-driven widgets alongside the existing static ones: **هشدارهای قوانین**
+(open findings, worst severity first — reads persisted `RuleFinding`, never
+live Rahkaran) and **KPI موجودیت** (count or sum over a materialized
+entity). Both compute server-side in `src/lib/dashboard/data.ts`.
+
+### Finance copilot: grounded over findings and entities too
+
+Beyond running reports/rules live (`src/lib/copilot/tools.ts`), the copilot
+can answer from already-computed data — `list_open_findings`,
+`explain_finding`, `entity_summary`, `query_entity_records` — so "what's our
+biggest risk right now" or "why did this alert fire" don't trigger a fresh
+Rahkaran query. Needs `OLLAMA_HOST`/`OLLAMA_MODEL` (a tool-calling-capable
+local model) — see `src/lib/copilot/chat.ts` for setup.
 
 ---
 

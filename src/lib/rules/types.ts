@@ -143,10 +143,29 @@ export interface Rule {
   fixHintFa: string;
   params?: RuleParam[];
   /**
-   * Read-only T-SQL projecting {@link RuleFindingRow}. Must never write.
-   * Placeholders are `{{paramName}}`.
+   * "sql" (default, omit `kind` entirely) — the rule is its own read-only
+   * T-SQL query against Rahkaran, exactly as every rule worked before Phase 3.
+   *
+   * "entity" — the rule evaluates a materialized Business Entity snapshot
+   * (see src/lib/entities/) instead of querying Rahkaran directly. Requires
+   * `entityKey` + `evaluate`, and `sql` is unused.
    */
-  sql: string;
+  kind?: "sql" | "entity";
+  /**
+   * Read-only T-SQL projecting {@link RuleFindingRow}. Must never write.
+   * Placeholders are `{{paramName}}`. Required when `kind` is "sql" or omitted.
+   */
+  sql?: string;
+  /** BusinessEntityDef.key this rule reads. Required when `kind` is "entity". */
+  entityKey?: string;
+  /**
+   * Pure function over the entity's current records (already synced fresh
+   * by the engine before this runs) plus resolved numeric params, producing
+   * findings the same shape a SQL rule would. Untyped records parameter is
+   * deliberate — each entity has its own record shape; the rule that owns
+   * `entityKey` also owns casting it correctly.
+   */
+  evaluate?: (records: Record<string, unknown>[], params: Record<string, number>) => RuleFindingRow[];
 }
 
 export interface RuleFinding extends RuleFindingRow {

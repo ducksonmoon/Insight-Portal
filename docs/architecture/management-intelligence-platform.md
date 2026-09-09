@@ -1,11 +1,12 @@
 # Management Intelligence & Decision Platform — Architecture Analysis
 
-Status: **Phases 1–6 shipped** (Rule Engine, Notification Center, semantic
-layer v1, Entity Rule Builder, Dashboard v2's alert/KPI widgets, and the
-copilot extension — all scoped to the Receivable entity) — see §14 for the
-phase list. More entities, full multi-dashboard infrastructure, and
-per-role access are still proposal only, deferred deliberately (see each
-phase's note for why). This document analyzes the Product Brief
+Status: **Phases 1–7 shipped** (Rule Engine, Notification Center, semantic
+layer, Entity Rule Builder, Dashboard v2's alert/KPI widgets, the copilot
+extension, and Liquidity Risk — the brief's two flagship worked examples,
+overdue receivables and liquidity shortfall, are both now real, running
+features) — see §14 for the phase list. Full multi-dashboard
+infrastructure and per-role access are still proposal only, deferred
+deliberately (see each phase's note for why). This document analyzes the Product Brief
 ("ERP Management Intelligence & Decision Platform") against the codebase as it
 exists today, flags where the brief's assumptions conflict with decisions
 already made and shipped, and proposes a concrete, incremental architecture
@@ -694,8 +695,39 @@ against real data; whether a given Ollama model reliably chooses to call
 them is untested and worth confirming against the actual model the
 customer's server will run before relying on this in front of them.
 
-**Later, only on customer-proven demand:** additional entities, a second
-ERP provider, event-driven triggers, action/workflow engine.
+**Phase 7 — Liquidity Risk, the brief's other flagship example — ✅ shipped**
+A `LiquidityPosition` entity (`src/lib/entities/definitions/liquidity-position.ts`),
+one row per bank: current balance (`RPA3.BankAccount` +
+`BankAccountTransaction`, the same running-balance calculation
+`src/lib/reports/sql/bank-balance.sql` already uses in production,
+simplified to "as of now" and rolled up per bank) minus payable notes due
+in the next 7 days at that bank (the exact WHERE clause
+`rpa.payable.cash_requirement` already used — whose own `fixHintFa`
+literally said "compare each account's balance with this amount", i.e.
+this entity is that comparison, automated). Backs a new predefined rule,
+`rpa.liquidity.cash_shortfall` — the brief's §20 worked example
+("موجودی 20B، تعهدات 28B، کسری 8B") implemented almost verbatim.
+
+Live-verified in more depth than usual, because a "no findings" result is
+easy to mistake for "it doesn't work": materialization produced 19 real
+banks with real balances (from ~1,000 to ~1.5 trillion Rial), and
+`next7dObligations` came back 0 for every one. Traced that to
+`RPA3.PayableNote` directly rather than trusting it — this customer
+genuinely has zero open payable notes right now (checked 30 days out, not
+just 7), so "no liquidity shortfall" is the correct answer, not a silent
+join bug.
+
+The 7-day horizon is fixed at materialization time, matching the brief's
+own example and the existing rule's default — not a rule parameter. A
+configurable horizon is exactly the kind of thing that becomes a real
+requirement (and thus worth building) only once a customer asks for one
+that isn't 7 days.
+
+**Later, only on customer-proven demand:** a `Payable` entity mirroring
+`Receivable` (no per-note payable rules exist yet to migrate — only the
+bank-grouped `cash_requirement`, which stays SQL), additional entities
+beyond Receivable/LiquidityPosition, a second ERP provider, event-driven
+triggers, action/workflow engine, `RoleEntityAccess`/`RoleRuleAccess`.
 
 ---
 

@@ -1,6 +1,8 @@
 import { formatJalaliDate } from "@/lib/entities/format";
-import type { ReceivableRecord } from "@/lib/entities/registry";
+import type { LiquidityPositionRecord, ReceivableRecord } from "@/lib/entities/registry";
 import type { Rule, RuleFindingRow } from "../types";
+
+const faNumber = (n: number) => new Intl.NumberFormat("fa-IR").format(Math.round(n));
 
 /**
  * These two rules both read the "Receivable" Business Entity
@@ -39,7 +41,26 @@ function dueSoonEvaluate(records: ReceivableRecord[], params: Record<string, num
     .sort((a, b) => new Date(a.ref_date as string).getTime() - new Date(b.ref_date as string).getTime());
 }
 
-export { overdueUncollectedEvaluate, dueSoonEvaluate };
+/**
+ * The brief's own flagship worked example (§20): a bank whose current
+ * balance can't cover what's due at that same bank in the next 7 days.
+ * Reads the "LiquidityPosition" entity (src/lib/entities/definitions/liquidity-position.ts),
+ * which already computed the join — this just picks out gap < 0.
+ */
+function cashShortfallEvaluate(records: LiquidityPositionRecord[]): RuleFindingRow[] {
+  return records
+    .filter((r) => r.gap < 0)
+    .map((r) => ({
+      entity_id: r.externalId,
+      title: `کسری نقدینگی — بانک ${r.bankName}`,
+      detail: `موجودی ${faNumber(r.bankBalance)} ریال — تعهدات ۷ روز آینده ${faNumber(r.next7dObligations)} ریال — کسری ${faNumber(Math.abs(r.gap))} ریال`,
+      amount: r.gap,
+      ref_date: null,
+    }))
+    .sort((a, b) => (a.amount ?? 0) - (b.amount ?? 0));
+}
+
+export { overdueUncollectedEvaluate, dueSoonEvaluate, cashShortfallEvaluate };
 
 /**
  * Library B — the finance manager's morning panel.
@@ -151,6 +172,21 @@ WHERE pn.State IN (1, 2, 29)
                      AND DATEADD(day, {{horizonDays}}, CAST(GETDATE() AS date))
 GROUP BY b.BankID, b.Name
 ORDER BY SUM(pn.Amount) DESC`.trim(),
+  },
+
+  {
+    id: "rpa.liquidity.cash_shortfall",
+    module: "RPA",
+    pack: "daily",
+    severity: "critical",
+    titleFa: "کسری نقدینگی — موجودی بانک کمتر از تعهدات نزدیک",
+    descriptionFa: "بانک‌هایی که موجودی فعلی‌شان کفاف چک‌های پرداختنی ۷ روز آینده را نمی‌دهد.",
+    whyItMattersFa:
+      "این دقیقاً همان چیزی است که یک مدیر باید همان صبح بداند: نه فقط «چقدر باید بدهیم» بلکه «آیا پول کافی برایش داریم». برگشت‌خوردن چک به‌خاطر کسری نقدینگی گران‌ترین و قابل‌پیشگیری‌ترین اشتباه است.",
+    fixHintFa: "بین حساب‌های بانکی جابه‌جایی وجه انجام بده یا با طرف‌حساب برای تعویق هماهنگ کن.",
+    kind: "entity",
+    entityKey: "LiquidityPosition",
+    evaluate: cashShortfallEvaluate as unknown as Rule["evaluate"],
   },
 
   {

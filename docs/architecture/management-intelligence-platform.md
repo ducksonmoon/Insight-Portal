@@ -602,11 +602,29 @@ reference implementation, live-verified against شرکت فولاد بهمن's r
 findings). `rpa.receivable.dishonoured` deliberately stays SQL-only — it
 reads a genuinely different note-state filter, not a slice of this entity.
 
-LC and Bank/Liquidity were **not** modeled — no evidence this customer's
-Rahkaran actually uses the IPR (foreign trade/LC) module, and there's an
-unexplored `src/lib/reports/sql/lc.sql` report already in the codebase
-worth checking before assuming LC needs a new entity at all. Model the next
-entity when a real rule needs it (§5.3's own rule), not preemptively.
+LC and Bank/Liquidity were **not** modeled. Bank/Liquidity: no source
+identified yet. LC: checked `src/lib/reports/sql/lc.sql` (now confirmed,
+not speculative) — this customer *does* track LCs, but not through the IPR
+module or any clean LC table. It's `FIN3.VoucherItem`/`DL` general-ledger
+entries (`SLCode = '3009'`), with the LC number and order number embedded
+as free text inside detail-account titles and extracted via
+`PATINDEX`/`CHARINDEX`, plus a **cursor-based FIFO debt-settlement
+calculation** in temp tables (`#FinalCalc`, `@RowDebt`, an `order_cursor`
+loop) computing each LC's remaining balance. It also takes six bound
+parameters (`@dl4`, `@dl5`, `@OrderNumber`, `@STARTDATE`, `@ENDDATE`,
+`@DebtStatus`).
+
+This is a bad first candidate for `BusinessEntityDef.sourceSql`, which
+`syncEntity()` expects to be one parameterless read-only `SELECT` cheap
+enough to run unattended on a schedule. Before modeling an LC entity,
+someone needs to answer, from real usage: is the unfiltered full-scan
+(all `@params` NULL) fast enough to sync periodically, or does the cursor
+loop make it report-only? Is title-text parsing reliable enough to trust
+in an automated rule, or does it need a human's eyes on each match the
+way the report presumably gets today? Don't guess — ask whoever runs this
+report today, or watch its actual execution time first. Model the next
+entity when a real rule needs it and its source query's shape is
+understood (§5.3's own rule), not preemptively.
 
 `Rule` gained `kind: "sql" | "entity"` (§10's `Rule.evaluate` from the
 original proposal, implemented as a plain TypeScript function over the

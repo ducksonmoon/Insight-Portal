@@ -1,4 +1,6 @@
 import { queryRahkaran } from "@/lib/db/rahkaran";
+import { getEntity } from "@/lib/entities/registry";
+import { loadEntityRecords, syncEntity } from "@/lib/entities/sync";
 import {
   SEVERITY_ORDER,
   type Rule,
@@ -14,11 +16,15 @@ import {
 const MAX_FINDINGS_PER_RULE = 500;
 
 /**
- * Substitute `{{param}}` placeholders. Every value is coerced to a finite number,
- * so a rule's SQL can never be shaped by arbitrary text.
+ * Every value is coerced to a finite number, so neither a SQL rule's
+ * placeholders nor an entity rule's evaluate() can ever be shaped by
+ * arbitrary text — same discipline, shared by both execution paths.
  */
-export function renderSql(rule: Rule, overrides: Record<string, number> = {}): string {
-  let sql = rule.sql;
+export function resolveNumericParams(
+  rule: Rule,
+  overrides: Record<string, number> = {},
+): Record<string, number> {
+  const resolved: Record<string, number> = {};
 
   for (const param of rule.params ?? []) {
     const raw = overrides[param.name] ?? param.defaultValue;
@@ -30,7 +36,23 @@ export function renderSql(rule: Rule, overrides: Record<string, number> = {}): s
       );
     }
 
-    sql = sql.replaceAll(`{{${param.name}}}`, String(value));
+    resolved[param.name] = value;
+  }
+
+  return resolved;
+}
+
+/** Substitute `{{param}}` placeholders using already-validated numeric params. */
+export function renderSql(rule: Rule, overrides: Record<string, number> = {}): string {
+  if (!rule.sql) {
+    throw new Error(`Rule ${rule.id}: kind "sql" requires a sql string`);
+  }
+
+  const resolved = resolveNumericParams(rule, overrides);
+  let sql: string = rule.sql;
+
+  for (const [name, value] of Object.entries(resolved)) {
+    sql = sql.replaceAll(`{{${name}}}`, String(value));
   }
 
   const leftover = sql.match(/\{\{(\w+)\}\}/);
@@ -49,6 +71,29 @@ function assertReadOnly(rule: Rule, sql: string): void {
   if (forbidden.test(sql)) {
     throw new Error(`Rule ${rule.id}: only read-only SELECT statements are allowed`);
   }
+}
+
+async function runSqlRule(rule: Rule, overrides: Record<string, number>): Promise<RuleFindingRow[]> {
+  const sql = renderSql(rule, overrides);
+  assertReadOnly(rule, sql);
+  return queryRahkaran<RuleFindingRow>(sql);
+}
+
+/** Syncs the rule's entity fresh, then evaluates it — see src/lib/entities/. */
+async function runEntityRule(rule: Rule, overrides: Record<string, number>): Promise<RuleFindingRow[]> {
+  if (!rule.entityKey || !rule.evaluate) {
+    throw new Error(`Rule ${rule.id}: kind "entity" requires entityKey and evaluate`);
+  }
+
+  const entity = getEntity(rule.entityKey);
+  if (!entity) {
+    throw new Error(`Rule ${rule.id}: unknown entity "${rule.entityKey}"`);
+  }
+
+  await syncEntity(entity);
+  const records = await loadEntityRecords(rule.entityKey);
+  const params = resolveNumericParams(rule, overrides);
+  return rule.evaluate(records, params);
 }
 
 function toFinding(rule: Rule, row: RuleFindingRow): RuleFinding {
@@ -77,10 +122,7 @@ export async function runRule(
     };
 
   try {
-    const sql = renderSql(rule, overrides);
-    assertReadOnly(rule, sql);
-
-    const rows = await queryRahkaran<RuleFindingRow>(sql);
+    const rows = rule.kind === "entity" ? await runEntityRule(rule, overrides) : await runSqlRule(rule, overrides);
     const findings = rows.slice(0, MAX_FINDINGS_PER_RULE).map((row) => toFinding(rule, row));
 
     const amounts = rows

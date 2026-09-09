@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { ReportSearch } from "@/components/dashboard/report-search";
+import { NotificationBell } from "@/components/layout/notification-bell";
 import type { Branding } from "@/lib/branding/settings";
 
 const pageTitles: Record<string, string> = {
@@ -71,6 +72,7 @@ export function AppHeader({ branding, onMenuClick }: AppHeaderProps) {
       </div>
 
       <div className="flex items-center gap-2">
+        {data?.user ? <NotificationBell /> : null}
         <div className="hidden items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 sm:flex">
           <UserCircle2 className="h-4 w-4 text-[var(--primary)]" />
           <div className="leading-tight">

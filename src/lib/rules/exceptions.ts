@@ -53,6 +53,20 @@ async function loadExceptionKeySet(): Promise<Set<string>> {
 }
 
 /**
+ * Same whitelist, applied to a single rule's findings rather than a whole
+ * scan summary — what the persisted rule engine (src/lib/rules/persistence.ts)
+ * uses so a whitelisted row never turns into a RuleFinding in the first place.
+ */
+export async function filterExceptions<T extends { entity_id: string | number }>(
+  ruleId: string,
+  findings: T[],
+): Promise<T[]> {
+  const exceptionKeys = await loadExceptionKeySet();
+  if (exceptionKeys.size === 0) return findings;
+  return findings.filter((finding) => !exceptionKeys.has(`${ruleId}::${finding.entity_id}`));
+}
+
+/**
  * Removes whitelisted findings from a scan summary and recomputes every total
  * (count, amount, failed list) so the report never shows a number that
  * contradicts the rows underneath it.

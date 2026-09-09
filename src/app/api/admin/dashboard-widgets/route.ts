@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db/prisma";
 
 const widgetSchema = z.object({
   title: z.string().min(1),
-  type: z.enum(["kpi", "report-link", "text", "chart", "report-pin"]),
+  type: z.enum(["kpi", "report-link", "text", "chart", "report-pin", "rule-alerts", "entity-kpi"]),
   config: z.record(z.string(), z.unknown()),
   sortOrder: z.number().optional(),
   isActive: z.boolean().optional(),

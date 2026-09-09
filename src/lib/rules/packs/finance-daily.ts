@@ -1,4 +1,45 @@
-import type { Rule } from "../types";
+import { formatJalaliDate } from "@/lib/entities/format";
+import type { ReceivableRecord } from "@/lib/entities/registry";
+import type { Rule, RuleFindingRow } from "../types";
+
+/**
+ * These two rules both read the "Receivable" Business Entity
+ * (src/lib/entities/definitions/receivable.ts) instead of querying Rahkaran
+ * directly — Phase 3's reference migration (see
+ * docs/architecture/management-intelligence-platform.md §14). Same open
+ * receivable notes (NoteType 1, State 1/2/29), sliced two different ways
+ * instead of two near-duplicate SQL queries. `rpa.receivable.dishonoured`
+ * below stays SQL — it reads a genuinely different State filter (4/17,
+ * "trouble" notes), not a slice of this entity.
+ */
+function overdueUncollectedEvaluate(records: ReceivableRecord[]): RuleFindingRow[] {
+  return records
+    .filter((r) => r.daysUntilDue < 0)
+    .map((r) => ({
+      entity_id: r.externalId,
+      title: `چک ${r.serialNumber} — ${r.counterpartName}`,
+      detail: `تفصیلی ${r.counterpartCode} — بانک ${r.bankName} — شماره حساب ${r.accountNumber} — سررسید ${formatJalaliDate(r.dueDate)} — ${Math.abs(r.daysUntilDue)} روز گذشته و هنوز وصول نشده`,
+      amount: r.amount,
+      ref_date: r.dueDate,
+    }))
+    .sort((a, b) => new Date(a.ref_date as string).getTime() - new Date(b.ref_date as string).getTime());
+}
+
+function dueSoonEvaluate(records: ReceivableRecord[], params: Record<string, number>): RuleFindingRow[] {
+  const horizon = params.horizonDays ?? 7;
+  return records
+    .filter((r) => r.daysUntilDue >= 0 && r.daysUntilDue <= horizon)
+    .map((r) => ({
+      entity_id: r.externalId,
+      title: `چک ${r.serialNumber} — ${r.counterpartName}`,
+      detail: `تفصیلی ${r.counterpartCode} — بانک ${r.bankName} — شماره حساب ${r.accountNumber} — سررسید ${formatJalaliDate(r.dueDate)} — ${r.daysUntilDue} روز دیگر`,
+      amount: r.amount,
+      ref_date: r.dueDate,
+    }))
+    .sort((a, b) => new Date(a.ref_date as string).getTime() - new Date(b.ref_date as string).getTime());
+}
+
+export { overdueUncollectedEvaluate, dueSoonEvaluate };
 
 /**
  * Library B — the finance manager's morning panel.
@@ -36,24 +77,9 @@ export const financeDailyRules: Rule[] = [
     whyItMattersFa:
       "این پول امروز باید در حساب شرکت می‌بود و نیست. هر روز تأخیر یعنی هزینهٔ نقدینگی و ریسک برگشت خوردن.",
     fixHintFa: "با طرف‌حساب تماس بگیرید و وضعیت چک را در راهکاران به‌روز کنید.",
-    sql: `
-SELECT
-  rn.ReceivableNoteID AS entity_id,
-  CONCAT(N'چک ', rn.SerialNumber, N' — ', COALESCE(p.CompanyName, p.FullName, dl.Title, N'طرف‌حساب نامشخص')) AS title,
-  CONCAT(N'تفصیلی ', ISNULL(dl.Code, N'—'),
-         N' — بانک ', ISNULL(bnk.Name, N'—'), N' — شماره حساب ', ISNULL(rn.AccountNumber, N'—'),
-         N' — سررسید ', SYS3.fn_DateToShamsiDate(rn.DueDate),
-         N' — ', DATEDIFF(day, rn.DueDate, GETDATE()), N' روز گذشته و هنوز وصول نشده') AS detail,
-  rn.Amount AS amount,
-  rn.DueDate AS ref_date
-FROM RPA3.ReceivableNote rn
-LEFT JOIN FIN3.DL dl ON dl.DLID = rn.CounterPartRef
-LEFT JOIN GNR3.Party p ON p.PartyID = dl.ReferenceID
-LEFT JOIN RPA3.Bank bnk ON bnk.BankID = rn.BankRef
-WHERE rn.NoteType = 1
-  AND rn.DueDate < CAST(GETDATE() AS date)
-  AND rn.State IN (1, 2, 29)
-ORDER BY rn.DueDate ASC`.trim(),
+    kind: "entity",
+    entityKey: "Receivable",
+    evaluate: overdueUncollectedEvaluate as unknown as Rule["evaluate"],
   },
 
   {
@@ -95,25 +121,9 @@ ORDER BY rn.Amount DESC`.trim(),
       "پیش‌آگهی وصول: اگر امروز پیگیری شود، فردا تبدیل به «وصول نشد» نمی‌شود.",
     fixHintFa: "فهرست را به واحد وصول بدهید تا پیش از سررسید هماهنگ کنند.",
     params: [{ name: "horizonDays", labelFa: "افق پیش‌آگهی (روز)", defaultValue: 7 }],
-    sql: `
-SELECT
-  rn.ReceivableNoteID AS entity_id,
-  CONCAT(N'چک ', rn.SerialNumber, N' — ', COALESCE(p.CompanyName, p.FullName, dl.Title, N'طرف‌حساب نامشخص')) AS title,
-  CONCAT(N'تفصیلی ', ISNULL(dl.Code, N'—'),
-         N' — بانک ', ISNULL(bnk.Name, N'—'), N' — شماره حساب ', ISNULL(rn.AccountNumber, N'—'),
-         N' — سررسید ', SYS3.fn_DateToShamsiDate(rn.DueDate),
-         N' — ', DATEDIFF(day, GETDATE(), rn.DueDate), N' روز دیگر') AS detail,
-  rn.Amount AS amount,
-  rn.DueDate AS ref_date
-FROM RPA3.ReceivableNote rn
-LEFT JOIN FIN3.DL dl ON dl.DLID = rn.CounterPartRef
-LEFT JOIN GNR3.Party p ON p.PartyID = dl.ReferenceID
-LEFT JOIN RPA3.Bank bnk ON bnk.BankID = rn.BankRef
-WHERE rn.NoteType = 1
-  AND rn.State IN (1, 2, 29)
-  AND rn.DueDate BETWEEN CAST(GETDATE() AS date)
-                     AND DATEADD(day, {{horizonDays}}, CAST(GETDATE() AS date))
-ORDER BY rn.DueDate ASC`.trim(),
+    kind: "entity",
+    entityKey: "Receivable",
+    evaluate: dueSoonEvaluate as unknown as Rule["evaluate"],
   },
 
   {

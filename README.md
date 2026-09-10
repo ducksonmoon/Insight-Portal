@@ -157,7 +157,8 @@ NEXT_PUBLIC_COMPANY_NAME=
 SEED_ADMIN_USER=admin       # only used by npm run db:seed
 SEED_ADMIN_PASSWORD=admin123
 
-# Scheduled report email delivery (cron: npm run schedules:run)
+# Email delivery — scheduled reports (npm run schedules:run) AND the
+# Notification Center's digest (npm run notifications:digest)
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_SECURE=false
@@ -168,6 +169,13 @@ SMTP_FROM=reports@company.com
 # Only needed for the payables-commitment rules in npm run scan — see below.
 # Two SL (معین) codes specific to this customer's chart of accounts.
 PAYABLES_WATCH_SL_CODES=211209,111413
+
+# Finance copilot (/copilot, admin-only) — a local Ollama instance, not a
+# cloud API, so the product stays deployable with no outbound-internet
+# dependency and no per-query cost. Without these, /copilot returns a
+# connection error; everything else in the product works regardless.
+OLLAMA_HOST=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen2.5:14b-instruct   # must support tool calling in Ollama
 ```
 
 On Windows Server, if `trustServerCertificate` is required for internal SQL:

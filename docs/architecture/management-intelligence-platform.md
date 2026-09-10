@@ -1,11 +1,12 @@
 # Management Intelligence & Decision Platform — Architecture Analysis
 
-Status: **Phases 1–6 shipped** (Rule Engine, Notification Center, semantic
-layer v1, Entity Rule Builder, Dashboard v2's alert/KPI widgets, and the
-copilot extension — all scoped to the Receivable entity) — see §14 for the
-phase list. More entities, full multi-dashboard infrastructure, and
-per-role access are still proposal only, deferred deliberately (see each
-phase's note for why). This document analyzes the Product Brief
+Status: **Phases 1–7 shipped** (Rule Engine, Notification Center, semantic
+layer, Entity Rule Builder, Dashboard v2's alert/KPI widgets, the copilot
+extension, and Liquidity Risk — the brief's two flagship worked examples,
+overdue receivables and liquidity shortfall, are both now real, running
+features) — see §14 for the phase list. Full multi-dashboard
+infrastructure and per-role access are still proposal only, deferred
+deliberately (see each phase's note for why). This document analyzes the Product Brief
 ("ERP Management Intelligence & Decision Platform") against the codebase as it
 exists today, flags where the brief's assumptions conflict with decisions
 already made and shipped, and proposes a concrete, incremental architecture
@@ -602,11 +603,29 @@ reference implementation, live-verified against شرکت فولاد بهمن's r
 findings). `rpa.receivable.dishonoured` deliberately stays SQL-only — it
 reads a genuinely different note-state filter, not a slice of this entity.
 
-LC and Bank/Liquidity were **not** modeled — no evidence this customer's
-Rahkaran actually uses the IPR (foreign trade/LC) module, and there's an
-unexplored `src/lib/reports/sql/lc.sql` report already in the codebase
-worth checking before assuming LC needs a new entity at all. Model the next
-entity when a real rule needs it (§5.3's own rule), not preemptively.
+LC and Bank/Liquidity were **not** modeled. Bank/Liquidity: no source
+identified yet. LC: checked `src/lib/reports/sql/lc.sql` (now confirmed,
+not speculative) — this customer *does* track LCs, but not through the IPR
+module or any clean LC table. It's `FIN3.VoucherItem`/`DL` general-ledger
+entries (`SLCode = '3009'`), with the LC number and order number embedded
+as free text inside detail-account titles and extracted via
+`PATINDEX`/`CHARINDEX`, plus a **cursor-based FIFO debt-settlement
+calculation** in temp tables (`#FinalCalc`, `@RowDebt`, an `order_cursor`
+loop) computing each LC's remaining balance. It also takes six bound
+parameters (`@dl4`, `@dl5`, `@OrderNumber`, `@STARTDATE`, `@ENDDATE`,
+`@DebtStatus`).
+
+This is a bad first candidate for `BusinessEntityDef.sourceSql`, which
+`syncEntity()` expects to be one parameterless read-only `SELECT` cheap
+enough to run unattended on a schedule. Before modeling an LC entity,
+someone needs to answer, from real usage: is the unfiltered full-scan
+(all `@params` NULL) fast enough to sync periodically, or does the cursor
+loop make it report-only? Is title-text parsing reliable enough to trust
+in an automated rule, or does it need a human's eyes on each match the
+way the report presumably gets today? Don't guess — ask whoever runs this
+report today, or watch its actual execution time first. Model the next
+entity when a real rule needs it and its source query's shape is
+understood (§5.3's own rule), not preemptively.
 
 `Rule` gained `kind: "sql" | "entity"` (§10's `Rule.evaluate` from the
 original proposal, implemented as a plain TypeScript function over the
@@ -676,8 +695,39 @@ against real data; whether a given Ollama model reliably chooses to call
 them is untested and worth confirming against the actual model the
 customer's server will run before relying on this in front of them.
 
-**Later, only on customer-proven demand:** additional entities, a second
-ERP provider, event-driven triggers, action/workflow engine.
+**Phase 7 — Liquidity Risk, the brief's other flagship example — ✅ shipped**
+A `LiquidityPosition` entity (`src/lib/entities/definitions/liquidity-position.ts`),
+one row per bank: current balance (`RPA3.BankAccount` +
+`BankAccountTransaction`, the same running-balance calculation
+`src/lib/reports/sql/bank-balance.sql` already uses in production,
+simplified to "as of now" and rolled up per bank) minus payable notes due
+in the next 7 days at that bank (the exact WHERE clause
+`rpa.payable.cash_requirement` already used — whose own `fixHintFa`
+literally said "compare each account's balance with this amount", i.e.
+this entity is that comparison, automated). Backs a new predefined rule,
+`rpa.liquidity.cash_shortfall` — the brief's §20 worked example
+("موجودی 20B، تعهدات 28B، کسری 8B") implemented almost verbatim.
+
+Live-verified in more depth than usual, because a "no findings" result is
+easy to mistake for "it doesn't work": materialization produced 19 real
+banks with real balances (from ~1,000 to ~1.5 trillion Rial), and
+`next7dObligations` came back 0 for every one. Traced that to
+`RPA3.PayableNote` directly rather than trusting it — this customer
+genuinely has zero open payable notes right now (checked 30 days out, not
+just 7), so "no liquidity shortfall" is the correct answer, not a silent
+join bug.
+
+The 7-day horizon is fixed at materialization time, matching the brief's
+own example and the existing rule's default — not a rule parameter. A
+configurable horizon is exactly the kind of thing that becomes a real
+requirement (and thus worth building) only once a customer asks for one
+that isn't 7 days.
+
+**Later, only on customer-proven demand:** a `Payable` entity mirroring
+`Receivable` (no per-note payable rules exist yet to migrate — only the
+bank-grouped `cash_requirement`, which stays SQL), additional entities
+beyond Receivable/LiquidityPosition, a second ERP provider, event-driven
+triggers, action/workflow engine, `RoleEntityAccess`/`RoleRuleAccess`.
 
 ---
 

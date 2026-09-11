@@ -61,13 +61,35 @@ export function resolveDatasetSqlText(
   });
 }
 
-export function loadSqlFile(sqlFile: string): string {
+/**
+ * `-- @include other.sql` on its own line splices that file in at this point.
+ *
+ * Exists for one concrete case: the LC detail report and the LC summary report
+ * are the same 700-line pipeline (parse the detail-account titles, settle each
+ * order FIFO) with different final SELECTs. Copying the pipeline into both
+ * files means every future correction has to be made twice, and the second one
+ * eventually gets missed.
+ *
+ * Deliberately minimal — a textual splice, filename only (no paths), one level
+ * of nesting is all anything needs but cycles are caught anyway. It is not a
+ * macro system; do not grow it into one.
+ */
+const INCLUDE_DIRECTIVE = /^[ \t]*--[ \t]*@include[ \t]+(\S+)[ \t]*$/gm;
+
+export function loadSqlFile(sqlFile: string, seen: string[] = []): string {
   const safe = path.basename(sqlFile);
   const filePath = path.join(SQL_DIR, safe);
   if (!fs.existsSync(filePath)) {
     throw new Error(`SQL file not found: ${safe}`);
   }
-  return fs.readFileSync(filePath, "utf-8");
+  if (seen.includes(safe)) {
+    throw new Error(`Circular SQL include: ${[...seen, safe].join(" → ")}`);
+  }
+
+  const raw = fs.readFileSync(filePath, "utf-8");
+  return raw.replace(INCLUDE_DIRECTIVE, (_match, target: string) =>
+    loadSqlFile(target, [...seen, safe]),
+  );
 }
 
 export function writeSqlFile(sqlFile: string, content: string): void {

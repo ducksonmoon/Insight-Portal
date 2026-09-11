@@ -15,6 +15,7 @@
     "scan": "npx tsx scripts/scan.ts",
     "scan:exception": "npx tsx scripts/rule-exception.ts",
     "scan:find-sl": "npx tsx scripts/find-sl.ts",
+    "lc:probe": "npx tsx scripts/lc-probe.ts",
     "schedules:run": "npx tsx scripts/run-schedules.ts",
     "rules:run": "npx tsx scripts/run-rule-schedules.ts",
     "notifications:digest": "npx tsx scripts/send-notification-digest.ts",

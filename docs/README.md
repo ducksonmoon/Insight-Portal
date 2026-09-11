@@ -11,6 +11,7 @@ Guides for admins, implementers, and migration from legacy Rahkaran / SSRS RDL.
 | [Deploy & operations](./guides/deploy-and-ops.md) | DevOps / IT | Install, update, PM2, HTTPS, troubleshooting |
 | [UI patterns](./guides/ui-patterns.md) | Implementers | PageHeader, forms, surfaces, tokens |
 | [Management Intelligence Platform — architecture](./architecture/management-intelligence-platform.md) | Implementers | Semantic layer, Rule Engine v2, Notification Center, roadmap |
+| [Letters of credit — findings and plan](./architecture/lc-monitoring.md) | Implementers | What the LC report got wrong and why, the `LC` entity, LC rules |
 
 **Main project README:** [../README.md](../README.md)
 

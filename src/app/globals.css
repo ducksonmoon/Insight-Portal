@@ -679,6 +679,23 @@ select.input-field {
   text-align: left !important;
 }
 
+/* Master-detail: rows in a master grid open a detail panel, so they need to
+   look clickable and the open one needs to stay visibly open while the reader
+   looks away at the detail below. */
+.ag-theme-quartz .report-row-clickable {
+  cursor: pointer;
+}
+
+.ag-theme-quartz .report-row-selected,
+.ag-theme-quartz .report-row-selected.ag-row-hover {
+  background-color: color-mix(
+    in srgb,
+    var(--primary) 14%,
+    var(--surface, #fff)
+  );
+  box-shadow: inset 3px 0 0 0 var(--primary);
+}
+
 .ag-theme-quartz .ag-header-cell-label {
   font-weight: 600;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AgGridReact } from "ag-grid-react";
 import {
   AllCommunityModule,
@@ -34,6 +34,16 @@ type ReportDataGridProps = {
   reportId?: string;
   showToolbar?: boolean;
   heightClass?: string;
+  /** Master-detail: called with the clicked row, so a parent grid can drive a detail panel. */
+  onRowClick?: (row: Record<string, unknown>) => void;
+  /** Highlights the row the detail panel is currently showing. */
+  isRowSelected?: (row: Record<string, unknown>) => boolean;
+  /**
+   * Keeps this row inside the grid's own viewport. Needed because the grid
+   * shrinks when a detail panel opens, which can drop the row that was just
+   * clicked below the new, shorter viewport.
+   */
+  ensureVisibleRow?: Record<string, unknown> | null;
 };
 
 function alignToCss(align?: ReportColumn["align"], isNumber?: boolean): string {
@@ -51,6 +61,9 @@ export function ReportDataGrid({
   reportId,
   showToolbar,
   heightClass = "h-[min(62vh,640px)]",
+  onRowClick,
+  isRowSelected,
+  ensureVisibleRow,
 }: ReportDataGridProps) {
   const gridConfig = resolveGridConfig(gridConfigInput);
   const toolbarVisible = showToolbar ?? gridConfig.showToolbar ?? true;
@@ -150,6 +163,17 @@ export function ReportDataGrid({
     [effectiveColumns, updateFilteredCount],
   );
 
+  useEffect(() => {
+    if (!gridApi || !ensureVisibleRow) return;
+    // Row objects come straight from `rows`, so identity comparison is exact
+    // and avoids inventing a key the caller would have to keep in sync.
+    gridApi.forEachNode((node) => {
+      if (node.data === ensureVisibleRow && typeof node.rowIndex === "number") {
+        gridApi.ensureIndexVisible(node.rowIndex, "middle");
+      }
+    });
+  }, [gridApi, ensureVisibleRow]);
+
   const densityClass =
     gridConfig.density === "compact" ? "ag-grid-compact" : "";
 
@@ -196,6 +220,20 @@ export function ReportDataGrid({
             onGridReady={onGridReady}
             onFilterChanged={(e) => updateFilteredCount(e.api)}
             onRowDataUpdated={(e) => updateFilteredCount(e.api)}
+            onRowClicked={
+              onRowClick
+                ? (e) => e.data && onRowClick(e.data as Record<string, unknown>)
+                : undefined
+            }
+            rowClassRules={
+              isRowSelected
+                ? {
+                    "report-row-selected": (p) =>
+                      Boolean(p.data) && isRowSelected(p.data as Record<string, unknown>),
+                    "report-row-clickable": () => true,
+                  }
+                : undefined
+            }
             defaultColDef={{
               sortable: true,
               filter: true,

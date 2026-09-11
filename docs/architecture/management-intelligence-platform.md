@@ -627,6 +627,19 @@ report today, or watch its actual execution time first. Model the next
 entity when a real rule needs it and its source query's shape is
 understood (§5.3's own rule), not preemptively.
 
+**Both questions have since been answered with measurements** — see
+[lc-monitoring.md](./lc-monitoring.md). The full scan runs in ~10 s over 2,304
+voucher rows and 139 LC detail accounts: syncable on a schedule, too slow for a
+page view, which is the case *for* materializing it. The title convention is
+far more consistent than feared (one format, zero Persian digits, zero
+invisible characters), so the parse is trustworthy — the parser that shipped
+was not, and four defects in it were fixed first, including one that made the
+report label 859 rows معوق where the settled calculation says 135. The cursor
+caveat above stands and is the remaining obstacle to `sourceSql`; that document
+proposes widening `syncEntity`'s single-`SELECT` assumption rather than
+re-deriving a settlement algorithm the finance team already reconciles
+against. An `LC` entity plus its rules is Phase 8, now unblocked.
+
 `Rule` gained `kind: "sql" | "entity"` (§10's `Rule.evaluate` from the
 original proposal, implemented as a plain TypeScript function over the
 entity's records rather than a JSON condition tree — the bounded DSL from

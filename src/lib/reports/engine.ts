@@ -18,6 +18,7 @@ import {
   type ReportDefinition,
   type ReportParameter,
 } from "@/types/report";
+import { makeDatasetJoinKey } from "@/types/report-result";
 import type {
   DatasetResult,
   EmbedResult,
@@ -169,10 +170,6 @@ export type ExecuteOptions = {
   _embedStack?: string[];
 };
 
-function makeJoinKey(row: Record<string, unknown>, fields: string[]): string {
-  return fields.map((f) => String(row[f] ?? "")).join("\u0001");
-}
-
 /**
  * Align definition column.field to actual SQL result keys.
  * RDL Field Names often use underscores while SELECT aliases use spaces.
@@ -317,7 +314,7 @@ async function executeDatasets(
     ) {
       childrenByParentKey = {};
       for (const row of rows) {
-        const key = makeJoinKey(row, childKeyFields);
+        const key = makeDatasetJoinKey(row, childKeyFields);
         if (!childrenByParentKey[key]) childrenByParentKey[key] = [];
         childrenByParentKey[key].push(row);
       }

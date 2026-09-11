@@ -1,10 +1,153 @@
 import type { ReportDefinition } from "@/types/report";
 import { normalizeDefinition } from "@/types/report";
 
+/** Shared between the lc-summary report's top-level mirror and its `main` dataset. */
+const LC_SUMMARY_COLUMNS = [
+      { field: "ردیف", header: "ردیف", type: "number" as const, width: 64, pinned: "right" as const },
+      { field: "وضعیت", header: "وضعیت", type: "string" as const, width: 120, pinned: "right" as const },
+      { field: "اولویت وضعیت", header: "اولویت وضعیت", type: "number" as const, width: 90, hidden: true },
+      { field: "شماره گشایش", header: "شماره گشایش", type: "string" as const, width: 210 },
+      { field: "شماره سفارش", header: "شماره سفارش", type: "string" as const, width: 120 },
+      { field: "بانک عامل", header: "بانک عامل", type: "string" as const, width: 190 },
+      { field: "ذی‌نفع", header: "ذی‌نفع", type: "string" as const, width: 200 },
+      { field: "مهلت (روز)", header: "مهلت (روز)", type: "number" as const, width: 90 },
+      { field: "تاریخ گشایش", header: "تاریخ گشایش", type: "string" as const, width: 110 },
+      { field: "مبلغ گشایش", header: "مبلغ گشایش", type: "number" as const, format: "#,##0", width: 150 },
+      { field: "جمع اسناد واصله", header: "جمع اسناد واصله", type: "number" as const, format: "#,##0", width: 150 },
+      { field: "درصد مصرف اعتبار", header: "٪ مصرف اعتبار", type: "number" as const, format: "#,##0.00", width: 110 },
+      { field: "مانده اعتبار استفاده‌نشده", header: "مانده اعتبار استفاده‌نشده", type: "number" as const, format: "#,##0", width: 160, hidden: true },
+      { field: "تعداد فاکتور", header: "تعداد فاکتور", type: "number" as const, width: 100 },
+      { field: "پیش/میان دریافت", header: "پیش/میان دریافت", type: "number" as const, format: "#,##0", width: 150, hidden: true },
+      { field: "خالص قابل پرداخت", header: "خالص قابل پرداخت", type: "number" as const, format: "#,##0", width: 150, hidden: true },
+      { field: "پرداخت‌شده", header: "پرداخت‌شده", type: "number" as const, format: "#,##0", width: 150 },
+      { field: "مانده بدهی", header: "مانده بدهی", type: "number" as const, format: "#,##0", width: 150 },
+      { field: "مازاد پرداخت", header: "مازاد پرداخت", type: "number" as const, format: "#,##0", width: 140, hidden: true },
+      { field: "نزدیک‌ترین سررسید باز", header: "نزدیک‌ترین سررسید", type: "string" as const, width: 130 },
+      { field: "روز تا سررسید", header: "روز تا سررسید", type: "number" as const, width: 110 },
+      { field: "مبلغ معوق", header: "مبلغ معوق", type: "number" as const, format: "#,##0", width: 150 },
+      { field: "قدمت معوق (روز)", header: "قدمت معوق (روز)", type: "number" as const, width: 120 },
+      { field: "سررسید امروز", header: "سررسید امروز", type: "number" as const, format: "#,##0", width: 140, hidden: true },
+      { field: "سررسید نزدیک", header: "سررسید نزدیک", type: "number" as const, format: "#,##0", width: 140, hidden: true },
+      { field: "سررسید ۳۰ روز", header: "سررسید ۳۰ روز", type: "number" as const, format: "#,##0", width: 140, hidden: true },
+      { field: "معوق ۱-۳۰", header: "معوق ۱-۳۰", type: "number" as const, format: "#,##0", width: 130, hidden: true },
+      { field: "معوق ۳۱-۶۰", header: "معوق ۳۱-۶۰", type: "number" as const, format: "#,##0", width: 130, hidden: true },
+      { field: "معوق ۶۱-۹۰", header: "معوق ۶۱-۹۰", type: "number" as const, format: "#,##0", width: 130, hidden: true },
+      { field: "معوق بالای ۹۰", header: "معوق بالای ۹۰", type: "number" as const, format: "#,##0", width: 140, hidden: true },
+      { field: "اولین فاکتور", header: "اولین فاکتور", type: "string" as const, width: 110, hidden: true },
+      { field: "آخرین فاکتور", header: "آخرین فاکتور", type: "string" as const, width: 110, hidden: true },
+      { field: "هشدار", header: "هشدار", type: "string" as const, width: 220 },
+      { field: "شرح تفصیل اعتبار", header: "شرح تفصیل اعتبار", type: "string" as const, width: 320, hidden: true },
+    ];
+
+const LC_SUMMARY_CHARTS = [
+      { type: "pie" as const, title: "تعداد اعتبار به تفکیک وضعیت", xField: "وضعیت", yField: "تعداد فاکتور" },
+      { type: "bar" as const, title: "مانده بدهی به تفکیک بانک عامل", xField: "بانک عامل", yField: "مانده بدهی" },
+      { type: "bar" as const, title: "مبلغ معوق به تفکیک ذی‌نفع", xField: "ذی‌نفع", yField: "مبلغ معوق" },
+    ];
+
 const rawDefinitions = [
   {
+    // The management view: one row per اعتبار, which is the grain this
+    // customer reviews by. The invoice-line detail lives in "lc-report".
+    id: "lc-summary",
+    nameFa: "گزارش ال سی — سطح اعتبار (گشایش × سفارش)",
+    moduleId: "financial",
+    dataSourceId: "rahkaran",
+    sqlFile: "lc-summary.sql",
+    parameters: [
+      { name: "STARTDATE", label: "از تاریخ سررسید", type: "jalali-date" as const, nullable: true },
+      { name: "ENDDATE", label: "تا تاریخ سررسید", type: "jalali-date" as const, nullable: true },
+      { name: "dl4", label: "ذی‌نفع (طرف بستانکار)", type: "lookup" as const, nullable: true, lookupCatalogSlug: "dl-titles" },
+      { name: "dl5", label: "بانک عامل", type: "lookup" as const, nullable: true, lookupCatalogSlug: "bank-g" },
+      { name: "OrderNumber", label: "شماره سفارش", type: "text" as const, nullable: true },
+      {
+        name: "DebtStatus",
+        label: "وضعیت",
+        type: "select" as const,
+        nullable: true,
+        options: [
+          { value: "معوق", label: "معوق — سررسید گذشته" },
+          { value: "سررسید امروز", label: "سررسید امروز" },
+          { value: "نزدیک سررسید", label: "نزدیک سررسید" },
+          { value: "جاری", label: "جاری — باز و در موعد" },
+          { value: "مازاد پرداخت", label: "مازاد پرداخت" },
+          { value: "تسویه شده", label: "تسویه شده" },
+        ],
+      },
+      {
+        name: "HorizonDays",
+        label: "افق هشدار «نزدیک سررسید» (روز)",
+        type: "number" as const,
+        nullable: true,
+      },
+    ],
+    // Visible by default: the identity of the credit, what it is worth, and
+    // when it is due. Everything else is one click away in the column panel —
+    // a 33-column wall is what made the previous report unreviewable.
+    columns: LC_SUMMARY_COLUMNS,
+    charts: LC_SUMMARY_CHARTS,
+    // Second section: the debit side. The other LC reports are built from the
+    // credit side (the supplier documents that create the obligation) and the
+    // settlement collapses payments into one AllocatedDebit per line, so the
+    // individual payments were invisible in the product. Narrow with
+    // شماره سفارش to reconcile a single credit.
+    datasets: [
+      {
+        id: "main",
+        nameFa: "اعتبارات — گشایش × سفارش",
+        sqlSource: { mode: "file" as const, path: "lc-summary.sql" },
+        columns: LC_SUMMARY_COLUMNS,
+        charts: LC_SUMMARY_CHARTS,
+        gridConfig: { density: "compact" as const, pageSize: 100 },
+      },
+      {
+        id: "payments",
+        nameFa: "پرداخت‌ها و انتقال‌های اعتبار",
+        sqlSource: { mode: "file" as const, path: "lc-payments.sql" },
+        // Declared as a child of "main" on the real key, which also makes the
+        // engine run it *after* the parent instead of in parallel. That is
+        // deliberate here: root datasets run concurrently and therefore need a
+        // second pooled connection, and on this customer's network a fresh
+        // handshake to the named instance fails far more often than it
+        // succeeds (see the pool comments in src/lib/db/rahkaran.ts). Measured:
+        // parallel returned "Failed to connect … in 15000ms" where serial,
+        // reusing the warm connection, completes in ~33s. Reliable and slower
+        // beats faster and intermittently broken.
+        parentDatasetId: "main",
+        parentKeyFields: ["شماره گشایش", "شماره سفارش"],
+        childKeyFields: ["شماره گشایش", "شماره سفارش"],
+        columns: [
+          { field: "ردیف", header: "ردیف", type: "number" as const, width: 64 },
+          { field: "تاریخ پرداخت", header: "تاریخ پرداخت", type: "string" as const, width: 110 },
+          { field: "شماره سند", header: "شماره سند", type: "number" as const, width: 100 },
+          { field: "نوع سند", header: "نوع سند", type: "string" as const, width: 150 },
+          { field: "شماره گشایش", header: "شماره گشایش", type: "string" as const, width: 210 },
+          { field: "شماره سفارش", header: "شماره سفارش", type: "string" as const, width: 120 },
+          { field: "بانک عامل", header: "بانک عامل", type: "string" as const, width: 190 },
+          { field: "ذی‌نفع", header: "ذی‌نفع", type: "string" as const, width: 200 },
+          { field: "مبلغ پرداخت", header: "مبلغ پرداخت", type: "number" as const, format: "#,##0", width: 160 },
+          { field: "شرح سند", header: "شرح سند", type: "string" as const, width: 340 },
+          { field: "شماره پیگیری", header: "شماره پیگیری", type: "string" as const, width: 130, hidden: true },
+          { field: "شرح تفصیل اعتبار", header: "شرح تفصیل اعتبار", type: "string" as const, width: 320, hidden: true },
+        ],
+        charts: [
+          { type: "bar" as const, title: "مبلغ پرداخت به تفکیک بانک عامل", xField: "بانک عامل", yField: "مبلغ پرداخت" },
+        ],
+        gridConfig: { density: "compact" as const, pageSize: 50 },
+      },
+    ],
+    layout: [
+      { type: "dataset" as const, datasetId: "main", title: "اعتبارات — یک سطر به ازای هر گشایش × سفارش" },
+      { type: "dataset" as const, datasetId: "payments", title: "پرداخت‌ها و انتقال‌های انجام‌شده" },
+    ],
+    gridConfig: { density: "compact" as const, pageSize: 100, pinFirstColumn: false },
+    validation: { maxRows: 5000, queryTimeoutSec: 90 },
+  },
+  {
+    // The drill-down: one row per invoice line. Open it filtered by
+    // شماره سفارش from the summary report above.
     id: "lc-report",
-    nameFa: "گزارش ال سی (اعتبارات اسنادی)",
+    nameFa: "گزارش ال سی — ریز اقلام (سطر فاکتور)",
     moduleId: "financial",
     dataSourceId: "rahkaran",
     sqlFile: "lc.sql",

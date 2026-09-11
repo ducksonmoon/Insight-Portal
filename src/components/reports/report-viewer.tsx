@@ -27,6 +27,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import type { ReportPlacement } from "@/lib/reports/organization";
+import { makeDatasetJoinKey } from "@/types/report-result";
 import type {
   ExecuteReportResult,
   DatasetResult,
@@ -48,6 +49,173 @@ type RunMeta = {
   durationMs?: number;
   truncated?: boolean;
 };
+
+/**
+ * A dataset that has a child dataset, rendered as master-detail: click a row in
+ * the master grid and the child's rows for that key appear beneath it.
+ *
+ * The join is already done — the engine groups child rows into
+ * `childrenByParentKey` when a dataset declares `parentDatasetId` — so this
+ * costs no extra query and no extra round trip. Selecting a row is pure
+ * client-side lookup against data that is already loaded.
+ *
+ * Without this the two datasets render as two independent grids and the only
+ * way to narrow the child to one parent is to retype a filter and re-run the
+ * whole report.
+ */
+function MasterDetailSection({
+  title,
+  master,
+  detail,
+  detailTitle,
+  report,
+}: {
+  title?: string;
+  master: DatasetResult;
+  detail: DatasetResult;
+  detailTitle?: string;
+  report: ReportDefinition;
+}) {
+  const masterDef = report.datasets.find((d) => d.id === master.id);
+  const detailDef = report.datasets.find((d) => d.id === detail.id);
+  const masterGrid = resolveGridConfig(report.gridConfig, masterDef?.gridConfig);
+  const detailGrid = resolveGridConfig(report.gridConfig, detailDef?.gridConfig);
+
+  const parentKeyFields = detailDef?.parentKeyFields ?? [];
+  const [selected, setSelected] = useState<Record<string, unknown> | null>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
+
+  // Reviewing goes LC by LC: click one, read its payments, move to the next.
+  // That only works if the selected row stays on screen next to its detail, so
+  // the master grid gives up height while a detail is open instead of pushing
+  // it below the fold. Full height again once nothing is selected.
+  useEffect(() => {
+    if (selected) {
+      detailRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [selected]);
+
+  const selectedKey = selected
+    ? makeDatasetJoinKey(selected, parentKeyFields)
+    : null;
+  const detailRows = selectedKey
+    ? (detail.childrenByParentKey?.[selectedKey] ?? [])
+    : [];
+
+  // Most LCs have a handful of payments and a few have twenty. A fixed-height
+  // detail grid means either acres of empty rows or needless scrolling, so
+  // pick a bucket. Literal class strings — Tailwind only sees what it can read.
+  const detailHeight =
+    detailRows.length <= 4
+      ? "h-[200px]"
+      : detailRows.length <= 10
+        ? "h-[min(28vh,320px)]"
+        : "h-[min(36vh,380px)]";
+
+  // A label for whichever row is open, built from the same fields that join
+  // the two datasets — so it always names the thing the detail rows belong to.
+  const selectedLabel = selected
+    ? parentKeyFields
+        .map((f) => String(selected[f] ?? ""))
+        .filter(Boolean)
+        .join(" · ")
+    : null;
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-base font-bold text-[var(--foreground)]">
+          {title || master.nameFa || master.id}
+        </h3>
+        <div className="flex flex-wrap gap-2 text-xs">
+          <span className="badge badge-primary">{master.totalCount} ردیف</span>
+          {master.truncated ? (
+            <span className="badge badge-warning">محدود شده</span>
+          ) : null}
+        </div>
+      </div>
+
+      <ReportCharts charts={master.charts ?? []} rows={master.rows} />
+
+      <p className="text-xs text-[var(--muted)]">
+        روی هر سطر کلیک کنید تا «{detailTitle || detail.nameFa}» همان سطر در
+        پایین نمایش داده شود.
+      </p>
+
+      <ReportDataGrid
+        rows={master.rows}
+        columns={master.columns}
+        grouping={master.grouping}
+        gridConfig={masterGrid}
+        reportId={report.id}
+        heightClass={
+          selected ? "h-[min(34vh,360px)]" : "h-[min(62vh,640px)]"
+        }
+        ensureVisibleRow={selected}
+        onRowClick={(row) =>
+          setSelected((current) =>
+            current &&
+            makeDatasetJoinKey(current, parentKeyFields) ===
+              makeDatasetJoinKey(row, parentKeyFields)
+              ? null
+              : row,
+          )
+        }
+        isRowSelected={(row) =>
+          selectedKey !== null &&
+          makeDatasetJoinKey(row, parentKeyFields) === selectedKey
+        }
+      />
+
+      <div
+        ref={detailRef}
+        className="space-y-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-muted)] p-4"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h4 className="text-sm font-bold text-[var(--foreground)]">
+            {detailTitle || detail.nameFa}
+            {selectedLabel ? (
+              <span className="mr-2 text-xs font-normal text-[var(--muted)]">
+                {selectedLabel}
+              </span>
+            ) : null}
+          </h4>
+          {selected ? (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="badge badge-primary">{detailRows.length} ردیف</span>
+              <Button variant="ghost" size="sm" onClick={() => setSelected(null)}>
+                بستن
+              </Button>
+            </div>
+          ) : (
+            <span className="badge">{detail.totalCount} ردیف در کل</span>
+          )}
+        </div>
+
+        {selected ? (
+          detailRows.length ? (
+            <ReportDataGrid
+              rows={detailRows}
+              columns={detail.columns}
+              grouping={detail.grouping}
+              gridConfig={detailGrid}
+              reportId={`${report.id}-${detail.id}`}
+              heightClass={detailHeight}
+            />
+          ) : (
+            <p className="py-6 text-center text-sm text-[var(--muted)]">
+              برای این سطر موردی ثبت نشده است.
+            </p>
+          )
+        ) : (
+          <p className="py-6 text-center text-sm text-[var(--muted)]">
+            یک سطر از جدول بالا را انتخاب کنید.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
 
 function DatasetSection({
   title,
@@ -130,6 +298,38 @@ function ReportResultSections({
           if (section.type === "dataset") {
             const ds = datasets[section.datasetId];
             if (!ds) return null;
+
+            // A dataset that is some other dataset's child is rendered inside
+            // that parent's section, not as a section of its own.
+            const parentDef = report.datasets.find(
+              (d) => d.id === section.datasetId,
+            )?.parentDatasetId;
+            if (parentDef && datasets[parentDef]) return null;
+
+            const childDef = report.datasets.find(
+              (d) => d.parentDatasetId === section.datasetId,
+            );
+            const childDs = childDef ? datasets[childDef.id] : undefined;
+            if (childDef && childDs?.childrenByParentKey) {
+              const childSection = layout.find(
+                (s) => s.type === "dataset" && s.datasetId === childDef.id,
+              );
+              return (
+                <MasterDetailSection
+                  key={`md-${section.datasetId}-${idx}`}
+                  title={section.title}
+                  master={ds}
+                  detail={childDs}
+                  detailTitle={
+                    childSection && childSection.type === "dataset"
+                      ? childSection.title
+                      : undefined
+                  }
+                  report={report}
+                />
+              );
+            }
+
             return (
               <DatasetSection
                 key={`ds-${section.datasetId}-${idx}`}

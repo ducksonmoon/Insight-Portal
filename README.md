@@ -84,6 +84,7 @@ Open: [http://localhost:3000](http://localhost:3000)
 | `npm run scan`                      | Run the finance data-health scan from the CLI (see below) |
 | `npm run scan:exception -- --list`  | Manage the scan's whitelist                  |
 | `npm run rules:run`                 | Run due rule schedules and persist findings (see below) |
+| `npm run lc:probe`                  | Read-only LC data check — parse reliability, runtime (see below) |
 
 ---
 
@@ -393,6 +394,56 @@ differing (see `rpa.receivable.overdue_uncollected` and
 `rpa.receivable.due_soon` for the reference example, both reading the
 `Receivable` entity). Set `kind: "entity"`, `entityKey`, and `evaluate`
 instead of `sql`; the engine syncs the entity fresh before evaluating.
+
+### Letters of credit (اعتبارات اسنادی)
+
+Two reports, at the two grains people need:
+
+| Report | Grain | Use it for |
+| ------ | ----- | ---------- |
+| **`lc-summary`** — سطح اعتبار (گشایش × سفارش) | one row per LC | the daily review: status, exposure, what is due |
+| **`lc-report`** — ریز اقلام (سطر فاکتور) | one row per invoice line | drilling into a single credit |
+
+**Click any LC row** and its payments appear right beneath it — date, document
+number, type, amount and description of every voucher booked against that
+credit. The master grid shortens while a detail is open so the selected row and
+its payments stay on screen together; click the row again (or **بستن**) to close.
+
+This is generic, not LC-specific: any report whose dataset declares
+`parentDatasetId` + `parentKeyFields` now renders as master-detail. The engine
+already grouped child rows by parent key (`childrenByParentKey`); the viewer
+simply renders it, so selecting a row costs no extra query.
+
+Status is judged against today (معوق · سررسید امروز · نزدیک سررسید · جاری ·
+مازاد پرداخت · تسویه شده) and ordered by urgency; «نزدیک سررسید» reads the
+`افق هشدار` filter, default 7 days. Money comes back as numbers, so the grid
+sorts and totals it and Excel receives numbers. About 20 of the 33 columns are
+hidden by default — open «تنظیم عرض ستون‌ها» for ageing buckets, credit
+utilisation and the rest.
+
+All three LC queries share one pipeline: `lc-core.sql` (parse titles, match the
+opening, settle each order FIFO) is pulled in with a `-- @include` directive
+resolved by `src/lib/reports/sql-loader.ts`, so a correction lands in every
+report at once. `lc-payments.sql` includes only `lc-accounts.sql`, since it
+needs the parsed titles but no settlement.
+
+This customer books LCs in the general ledger rather than in Rahkaran's `IPR3`
+module, so the order number, LC identifier and usance term live as free text
+inside a detail account's title and have to be parsed out.
+`src/lib/reports/lc-title.ts` holds that parse in TypeScript, with unit tests,
+as the reference the report's T-SQL must match.
+
+```bash
+# Read-only. Volume, how much of the title text parses, where the report's own
+# parser disagrees with the reference one, identifier collisions, due-date
+# distribution. --timing also runs the full report once and times it.
+npm run lc:probe -- --timing
+```
+
+Run it before and after touching the parse. What it found the first time, and
+the plan it unblocked (an `LC` Business Entity and rules for
+overdue/due-soon/over-utilised credit), are in
+[docs/architecture/lc-monitoring.md](./docs/architecture/lc-monitoring.md).
 
 ### Entity Rule Builder — custom rules without code
 

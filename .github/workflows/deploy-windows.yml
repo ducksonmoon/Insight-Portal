@@ -1,0 +1,83 @@
+name: Deploy to Windows Server
+
+# Runs on a *self-hosted* runner registered on the target Windows Server
+# itself (see docs/deployment/windows-server.md). GitHub-hosted runners live
+# in GitHub's cloud and cannot reach Rahkaran or the app's own SQL Server —
+# both sit on private IPs inside the customer's network — so the build has
+# to happen on a machine that's already inside that network.
+#
+# Secrets are deliberately NOT used for database credentials. The runner
+# executes directly on the production server, where a persistent .env file
+# already holds them (see the setup doc) — Next.js and Prisma read it
+# automatically from the working directory. Piping Rahkaran/DB passwords
+# through GitHub's secret store would send them over the network for no
+# benefit, since they never leave the box either way.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, windows, insight-portal]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Never touch the persistent .env / .env.production file that
+          # lives in this working directory outside of git.
+          clean: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (includes prisma generate)
+        run: npm run build
+
+      - name: Apply app database schema changes
+        run: npx prisma db push
+        # No --accept-data-loss: if a change would drop data, this fails
+        # loudly instead of applying it. Re-run by hand with that flag only
+        # after reviewing exactly what it would drop.
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Restart Windows Service
+        shell: powershell
+        run: |
+          $serviceName = "InsightPortal"
+          Write-Host "Restarting $serviceName..."
+          Restart-Service -Name $serviceName -Force
+          Start-Sleep -Seconds 5
+          $svc = Get-Service -Name $serviceName
+          if ($svc.Status -ne "Running") {
+            Write-Error "$serviceName did not come back up (status: $($svc.Status))"
+            exit 1
+          }
+          Write-Host "$serviceName is running."
+
+      - name: Smoke test
+        shell: powershell
+        run: |
+          $maxAttempts = 10
+          for ($i = 1; $i -le $maxAttempts; $i++) {
+            try {
+              $response = Invoke-WebRequest -Uri "http://localhost:3000/api/health" -UseBasicParsing -TimeoutSec 5
+              if ($response.StatusCode -eq 200) {
+                Write-Host "Health check passed."
+                exit 0
+              }
+            } catch {
+              Write-Host "Attempt $i/$maxAttempts failed, retrying in 3s..."
+              Start-Sleep -Seconds 3
+            }
+          }
+          Write-Error "App did not respond healthy after $maxAttempts attempts."
+          exit 1

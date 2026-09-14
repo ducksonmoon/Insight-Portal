@@ -136,15 +136,15 @@ export function ReportDataGrid({
         // badge instead of plain text — declared per-column via
         // ReportColumn.badgeTone (see src/types/report.ts). Values with no
         // entry in the map fall back to plain text, so a partial map is safe.
+        // ag-grid-react treats a plain function cellRenderer as a React
+        // component, so it must return JSX — a raw DOM node here throws
+        // "Objects are not valid as a React child" the moment the column
+        // renders.
         cellRenderer: col.badgeTone
           ? (p: ICellRendererParams) => {
               const text = p.value == null ? "" : String(p.value);
               const tone = col.badgeTone?.[text];
-              if (!tone) return text;
-              const span = document.createElement("span");
-              span.className = `badge badge-${tone}`;
-              span.textContent = text;
-              return span;
+              return tone ? <span className={`badge badge-${tone}`}>{text}</span> : text;
             }
           : undefined,
       };

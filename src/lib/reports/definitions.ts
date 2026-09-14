@@ -1,4 +1,4 @@
-import type { ReportDefinition } from "@/types/report";
+import type { KpiCardSpec, ReportDefinition } from "@/types/report";
 import { normalizeDefinition } from "@/types/report";
 
 /**
@@ -54,10 +54,132 @@ const LC_BUSINESS_ALERT_BADGES = {
   },
 };
 
+/**
+ * The six urgency-ordered statuses lc-summary.sql assigns (see its own
+ * StatusRank comment) get the same colour every place they appear — this
+ * grid's وضعیت column and the KPI band below — so a reader learns the
+ * mapping once. Same six tones docs/architecture/lc-monitoring.md's §3
+ * table proposed (red/orange/amber/gray/blue/green), using tokens already
+ * in src/app/globals.css.
+ */
+const LC_STATUS_BADGE_TONE = {
+  "معوق": "danger",
+  "سررسید امروز": "warning",
+  "نزدیک سررسید": "accent",
+  "جاری": "muted",
+  "مازاد پرداخت": "primary",
+  "تسویه شده": "success",
+} as const;
+
+/**
+ * The برief's "لایه ۱ — کارت‌های KPI" — a 10-second glance the grid alone
+ * doesn't give. Computed client-side from lc-summary.sql's own already-
+ * returned columns (StatusRank/status, per-bucket amounts, هشدار); no SQL
+ * change needed. See src/components/reports/report-kpi-band.tsx.
+ */
+const LC_SUMMARY_KPI_BAND: KpiCardSpec[] = [
+  {
+    id: "open",
+    labelFa: "تعداد اعتبار باز",
+    tone: "muted",
+    aggregate: { op: "count" },
+    condition: { field: "اولویت وضعیت", op: "lte", value: 4 },
+  },
+  {
+    id: "overdue",
+    labelFa: "مبلغ معوق",
+    tone: "danger",
+    format: "amount",
+    aggregate: { op: "sum", field: "مبلغ معوق" },
+  },
+  {
+    id: "due-today",
+    labelFa: "سررسید امروز",
+    tone: "warning",
+    format: "amount",
+    aggregate: { op: "sum", field: "سررسید امروز" },
+  },
+  {
+    id: "due-soon",
+    labelFa: "سررسید نزدیک",
+    hintFa: "افق هشدار پارامتر «HorizonDays»",
+    tone: "accent",
+    format: "amount",
+    aggregate: { op: "sum", field: "سررسید نزدیک" },
+  },
+  {
+    id: "surplus",
+    labelFa: "مازاد پرداخت",
+    tone: "primary",
+    format: "amount",
+    aggregate: { op: "sum", field: "مازاد پرداخت" },
+  },
+  {
+    id: "unused-credit",
+    labelFa: "مانده اعتبار استفاده‌نشده",
+    tone: "muted",
+    format: "amount",
+    aggregate: { op: "sum", field: "مانده اعتبار استفاده‌نشده" },
+    condition: { field: "مانده اعتبار استفاده‌نشده", op: "gt", value: 0 },
+  },
+  {
+    // A genuine defect: the LC number, order number, or usance term
+    // couldn't be read off the free-text title at all. Deliberately does
+    // NOT include the invoice-date fallback below — that's a much milder,
+    // far more common issue, and folding it in here is exactly the
+    // "one opaque number" problem this split exists to avoid.
+    id: "data-quality-identifier",
+    labelFa: "شناسه یا مهلت غیرقابل استخراج",
+    hintFa: "شماره اعتبار، شماره سفارش یا مهلت از عنوان تفصیلی خوانده نشد",
+    tone: "warning",
+    aggregate: { op: "count" },
+    condition: { field: "شناسه یا مهلت غیرقابل استخراج", op: "gt", value: 0 },
+  },
+  {
+    // Milder still: the voucher's description carried no 14xx/xx/xx date,
+    // so its own posting date stood in for the invoice date. Common on
+    // real accounting entries and often harmless — see هشدار on the row
+    // itself for which one — so it gets its own low-key card rather than
+    // being counted as a "استخراج متن" defect.
+    id: "data-quality-date-fallback",
+    labelFa: "تاریخ فاکتور جایگزین شد",
+    hintFa: "تاریخ در شرح سند یافت نشد؛ به‌جای آن تاریخ ثبت سند استفاده شد",
+    tone: "accent",
+    aggregate: { op: "count" },
+    condition: { field: "تاریخ از شرح استخراج نشد", op: "eq", value: 1 },
+  },
+  {
+    // Not a defect — most LCs in this data genuinely have no matching
+    // opening record on file (see lc-monitoring.md's Layer 1 finding: only
+    // 47 of 137 do). Kept as its own, honestly-labelled card instead of
+    // folded into either card above, which would read as a much bigger
+    // parsing problem than actually exists.
+    id: "data-quality-no-opening",
+    labelFa: "بدون گشایش شناسایی‌شده",
+    hintFa: "رکورد گشایش مطابق در دفتر انتظامی پیدا نشد — معمولاً طبیعی است، نه لزوماً ایراد",
+    tone: "muted",
+    aggregate: { op: "count" },
+    condition: { field: "بدون گشایش شناسایی‌شده", op: "eq", value: 1 },
+  },
+  {
+    // A genuine defect that can silently double-count debt: the same LC
+    // booked under two different issuing banks means the same rial amount
+    // shows up twice when totals are broken down by bank. Found once by
+    // hand (detail account 85158 — see lc-monitoring.md); this is the
+    // standing check so the next occurrence surfaces on its own.
+    id: "data-quality-multi-bank",
+    labelFa: "ثبت زیر چند بانک",
+    hintFa: "همین اعتبار زیر بیش از یک بانک عامل ثبت شده — ممکن است مبلغ دوبار شمرده شود",
+    tone: "danger",
+    aggregate: { op: "count" },
+    condition: { field: "ثبت زیر چند بانک", op: "eq", value: 1 },
+  },
+];
+
 /** Shared between the lc-summary report's top-level mirror and its `main` dataset. */
 const LC_SUMMARY_COLUMNS = [
       { field: "ردیف", header: "ردیف", type: "number" as const, width: 64, pinned: "right" as const },
-      { field: "وضعیت", header: "وضعیت", type: "string" as const, width: 120, pinned: "right" as const },
+      { field: "وضعیت", header: "وضعیت", type: "string" as const, width: 120, pinned: "right" as const, badgeTone: LC_STATUS_BADGE_TONE },
       { field: "اولویت وضعیت", header: "اولویت وضعیت", type: "number" as const, width: 90, hidden: true },
       { field: "ایراد داده", header: "ایراد داده", type: "string" as const, width: 260, badges: LC_DATA_ISSUE_BADGES },
       { field: "هشدار", header: "هشدار", type: "string" as const, width: 160, badges: LC_BUSINESS_ALERT_BADGES },
@@ -91,6 +213,16 @@ const LC_SUMMARY_COLUMNS = [
       { field: "معوق بالای ۹۰", header: "معوق بالای ۹۰", type: "number" as const, format: "#,##0", width: 140, hidden: true },
       { field: "اولین فاکتور", header: "اولین فاکتور", type: "string" as const, width: 110, hidden: true },
       { field: "آخرین فاکتور", header: "آخرین فاکتور", type: "string" as const, width: 110, hidden: true },
+      // Hidden numeric flags behind the "ایراد داده"/"هشدار" badge columns
+      // above — the KPI band aggregates these directly (see
+      // LC_SUMMARY_KPI_BAND) rather than parsing the pipe-delimited badge
+      // text back apart. The narrower per-field booleans (which single
+      // identifier failed) live in "ایراد داده" itself, named and
+      // tooltipped — no separate hidden column needed for those.
+      { field: "شناسه یا مهلت غیرقابل استخراج", header: "شناسه یا مهلت غیرقابل استخراج", type: "number" as const, width: 160, hidden: true },
+      { field: "تاریخ از شرح استخراج نشد", header: "تاریخ از شرح استخراج نشد", type: "number" as const, width: 150, hidden: true },
+      { field: "بدون گشایش شناسایی‌شده", header: "بدون گشایش شناسایی‌شده", type: "number" as const, width: 150, hidden: true },
+      { field: "ثبت زیر چند بانک", header: "ثبت زیر چند بانک", type: "number" as const, width: 130, hidden: true },
       { field: "شرح تفصیل اعتبار", header: "شرح تفصیل اعتبار", type: "string" as const, width: 320, hidden: true },
     ];
 
@@ -114,8 +246,14 @@ const rawDefinitions = [
     dataSourceId: "rahkaran",
     sqlFile: "lc-summary.sql",
     parameters: [
-      { name: "STARTDATE", label: "از تاریخ سررسید", type: "jalali-date" as const, nullable: true },
-      { name: "ENDDATE", label: "تا تاریخ سررسید", type: "jalali-date" as const, nullable: true },
+      {
+        name: "dueDateRange",
+        label: "بازه سررسید",
+        type: "jalali-date-range" as const,
+        nullable: true,
+        rangeStartName: "STARTDATE",
+        rangeEndName: "ENDDATE",
+      },
       { name: "dl4", label: "ذی‌نفع (طرف بستانکار)", type: "lookup" as const, nullable: true, lookupCatalogSlug: "dl-titles" },
       { name: "dl5", label: "بانک عامل", type: "lookup" as const, nullable: true, lookupCatalogSlug: "bank-g" },
       { name: "OrderNumber", label: "شماره سفارش", type: "text" as const, nullable: true },
@@ -157,6 +295,7 @@ const rawDefinitions = [
         sqlSource: { mode: "file" as const, path: "lc-summary.sql" },
         columns: LC_SUMMARY_COLUMNS,
         charts: LC_SUMMARY_CHARTS,
+        kpiBand: LC_SUMMARY_KPI_BAND,
         gridConfig: { density: "compact" as const, pageSize: 100 },
       },
       {
@@ -211,8 +350,14 @@ const rawDefinitions = [
     dataSourceId: "rahkaran",
     sqlFile: "lc.sql",
     parameters: [
-      { name: "STARTDATE", label: "از تاریخ سررسید", type: "jalali-date" as const, nullable: true },
-      { name: "ENDDATE", label: "تا تاریخ سررسید", type: "jalali-date" as const, nullable: true },
+      {
+        name: "dueDateRange",
+        label: "بازه سررسید",
+        type: "jalali-date-range" as const,
+        nullable: true,
+        rangeStartName: "STARTDATE",
+        rangeEndName: "ENDDATE",
+      },
       { name: "dl4", label: "طرف مقابل (بستانکار)", type: "lookup" as const, nullable: true, lookupCatalogSlug: "dl-titles" },
       { name: "dl5", label: "بانک عامل", type: "lookup" as const, nullable: true, lookupCatalogSlug: "bank-g" },
       { name: "OrderNumber", label: "شماره سفارش", type: "text" as const, nullable: true },
@@ -247,7 +392,13 @@ const rawDefinitions = [
       { field: "مبلغ کل", header: "مبلغ کل", type: "string" as const, width: 130 },
       { field: "مبلغ پرداخت شده", header: "مبلغ پرداخت شده", type: "string" as const, width: 140 },
       { field: "مانده بدهی", header: "مانده بدهی", type: "string" as const, width: 130 },
-      { field: "وضعیت بدهی", header: "وضعیت بدهی", type: "string" as const, width: 120 },
+      {
+        field: "وضعیت بدهی",
+        header: "وضعیت بدهی",
+        type: "string" as const,
+        width: 120,
+        badgeTone: { "معوق": "danger", "مازاد پرداخت": "primary", "تسویه شده": "success" } as const,
+      },
       { field: "مبلغ گشایش", header: "مبلغ گشایش", type: "string" as const, width: 130 },
       { field: "تاریخ گشایش", header: "تاریخ گشایش", type: "string" as const, width: 120 },
       { field: "مدت گشایش", header: "مدت گشایش", type: "string" as const, width: 110 },

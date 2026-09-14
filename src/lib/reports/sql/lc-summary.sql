@@ -122,7 +122,31 @@ Scored AS (
         DaysToDue    = DATEDIFF(DAY, @AsOf, a.NextOpenDue),
         OverdueDays  = CASE WHEN a.OldestOpenDue IS NOT NULL
                             THEN DATEDIFF(DAY, a.OldestOpenDue, @AsOf) END,
-        DqCount      = a.DqNoLc + a.DqNoOrder + a.DqNoTerm + a.DqNoOpen
+        -- Several different kinds of "don't fully trust this row", kept
+        -- apart on purpose instead of one opaque count — a manager reading
+        -- "3 ایراد" learns nothing about what's actually wrong or whether
+        -- it's worth acting on. See the "ایراد داده"/"هشدار" comment below
+        -- for how these become named, tooltipped badges.
+        --   DqIdentifierCount — a genuine defect: the LC number, order
+        --     number or usance term couldn't be read off the free-text
+        --     title at all.
+        --   DqDateFallback — a much milder issue: the voucher's own
+        --     description carried no 14xx/xx/xx date, so the voucher's
+        --     posting date stood in for the invoice date. Common, and often
+        --     harmless, but worth knowing which rows it happened on.
+        --   DqMultiBank — a genuine defect that can silently double-count
+        --     debt: this DL6 is booked under more than one issuing bank
+        --     (see Dl6BankCounts above).
+        --   DqNoOpen (below, from Agg) — not a defect at all for most LCs
+        --     in this data; see its own comment.
+        DqIdentifierCount = a.DqNoLc + a.DqNoOrder + a.DqNoTerm,
+        DqDateFallback    = CASE WHEN a.DqFallback > 0 THEN 1 ELSE 0 END,
+        DqMultiBank       = CASE WHEN ISNULL(bc.BankCount, 1) > 1 THEN 1 ELSE 0 END,
+        -- Total across every kind above, DqNoOpen included — a single
+        -- numeric handle for "show me every row with 2+ issues" without
+        -- parsing the pipe-delimited badge text back apart. The badges
+        -- themselves (below) are what a reader actually reads.
+        DqTotalCount = a.DqNoLc + a.DqNoOrder + a.DqNoTerm + a.DqNoOpen
                        + CASE WHEN a.DqFallback > 0 THEN 1 ELSE 0 END
                        + CASE WHEN ISNULL(bc.BankCount, 1) > 1 THEN 1 ELSE 0 END,
         -- Ordered by urgency, so sorting on وضعیت sorts by what to deal with
@@ -165,13 +189,17 @@ Final AS (
             WHEN 4 THEN N'جاری'
             WHEN 5 THEN N'مازاد پرداخت'
             ELSE N'تسویه شده' END,
+        -- Named, pipe-delimited phrases instead of a bare count — "2 ایراد"
+        -- tells a reader nothing; these render as colored, tooltipped badge
+        -- chips via ReportColumn.badges (see LC_DATA_ISSUE_BADGES /
+        -- LC_BUSINESS_ALERT_BADGES in src/lib/reports/definitions.ts).
         DataIssues = NULLIF(STUFF(
               CASE WHEN s.DqNoOrder = 1 THEN N'|بدون شماره سفارش' ELSE N'' END
             + CASE WHEN s.DqNoLc    = 1 THEN N'|بدون شناسه اعتبار' ELSE N'' END
             + CASE WHEN s.DqNoTerm  = 1 THEN N'|بدون مهلت پرداخت' ELSE N'' END
             + CASE WHEN s.DqNoOpen  = 1 THEN N'|بدون مبلغ گشایش' ELSE N'' END
-            + CASE WHEN s.DqFallback > 0 THEN N'|تاریخ تخمینی' ELSE N'' END
-            + CASE WHEN s.BankCount > 1 THEN N'|ثبت زیر چند بانک' ELSE N'' END
+            + CASE WHEN s.DqDateFallback = 1 THEN N'|تاریخ تخمینی' ELSE N'' END
+            + CASE WHEN s.DqMultiBank    = 1 THEN N'|ثبت زیر چند بانک' ELSE N'' END
         , 1, 1, N''), N''),
         BusinessAlerts = NULLIF(STUFF(
               CASE WHEN s.OpeningAmount IS NOT NULL
@@ -191,7 +219,7 @@ SELECT
     -- Hidden: a numeric handle on «ایراد داده» for sorting/filtering
     -- ("show me every row with 2 or more issues") without parsing the
     -- pipe-delimited text back apart.
-    f.DqCount                                 AS [تعداد ایراد داده],
+    f.DqTotalCount                            AS [تعداد ایراد داده],
     f.LcNumber                                AS [شماره گشایش],
     f.OrderNumber                             AS [شماره سفارش],
     f.BankTitle                               AS [بانک عامل],
@@ -221,6 +249,16 @@ SELECT
     f.Age4                                    AS [معوق بالای ۹۰],
     SYS3.fn_DateToShamsiDate(f.FirstInvoice)  AS [اولین فاکتور],
     SYS3.fn_DateToShamsiDate(f.LastInvoice)   AS [آخرین فاکتور],
+    -- Hidden numeric flags behind the ایراد داده/هشدار badge columns above
+    -- (see LC_SUMMARY_KPI_BAND in src/lib/reports/definitions.ts, which
+    -- aggregates these directly rather than parsing the pipe-delimited
+    -- badge text back apart). The narrower per-field booleans (which single
+    -- identifier failed) live in ایراد داده itself, named and tooltipped —
+    -- no separate hidden column needed for those.
+    f.DqIdentifierCount                       AS [شناسه یا مهلت غیرقابل استخراج],
+    f.DqDateFallback                          AS [تاریخ از شرح استخراج نشد],
+    f.DqNoOpen                                AS [بدون گشایش شناسایی‌شده],
+    f.DqMultiBank                             AS [ثبت زیر چند بانک],
     f.LcTitle                                 AS [شرح تفصیل اعتبار]
 FROM Final f
 WHERE (

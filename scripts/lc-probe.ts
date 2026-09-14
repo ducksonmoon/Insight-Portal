@@ -20,6 +20,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { NON_LATIN_DIGIT, parseLcTitle, ZERO_WIDTH_ANY } from "../src/lib/reports/lc-title";
+import { loadSqlFile } from "../src/lib/reports/sql-loader";
 
 function arg(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
@@ -379,7 +380,12 @@ async function main() {
   /* 7 ── runtime of the shipped report, unfiltered ──────────────────────── */
   console.log("");
   if (hasFlag("timing")) {
-    const body = readFileSync(join(process.cwd(), "src", "lib", "reports", "sql", "lc.sql"), "utf8");
+    // Must go through loadSqlFile, not a raw fs read: lc.sql is just
+    // `-- @include lc-core.sql` plus its own final SELECT since the shared
+    // pipeline moved out. A raw read would ship straight to Rahkaran
+    // referencing #FinalCalc/@RowDebt, which only exist once the include is
+    // spliced in — it would fail immediately, not just measure wrong.
+    const body = loadSqlFile("lc.sql");
     const declarations = `
 DECLARE @dl4 nvarchar(500) = NULL,
         @dl5 nvarchar(500) = NULL,

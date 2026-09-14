@@ -411,6 +411,11 @@ WHERE fc.ExtractedOrderNumber IS NOT NULL
         )
     );
 
+-- Small table (one row per in-scope order), but it's probed once per row of
+-- #FinalCalc below via NOT EXISTS, and again once per order inside the
+-- settlement loop further down — worth a seek instead of a scan either way.
+CREATE CLUSTERED INDEX IX_InScopeOrders ON #InScopeOrders (ExtractedOrderNumber);
+
 DECLARE @RowDebt TABLE (
     CreditItemID      BIGINT         NOT NULL PRIMARY KEY,
     RemainingDebt     DECIMAL(38, 0) NOT NULL,
@@ -461,6 +466,16 @@ BEGIN
     INNER JOIN #InScopeOrders iso
         ON iso.ExtractedOrderNumber = fc.ExtractedOrderNumber;
 
+    -- The cursor loop below issues one point/range lookup against this table
+    -- per row it processes (find the next unsettled row, mark it settled,
+    -- advance). Without an index every one of those is a full scan of the
+    -- *whole* table (all orders, not just the current one) — O(rows²)
+    -- overall. ExtractedOrderNumber is guaranteed NOT NULL here (it came
+    -- through the INNER JOIN above against #InScopeOrders, which is itself
+    -- filtered to non-null order numbers — see #InScopeOrders below), so
+    -- every lookup against this table can use a plain equality seek.
+    CREATE CLUSTERED INDEX IX_OrderSettlement ON #OrderSettlement (ExtractedOrderNumber, RowSeq);
+
     DECLARE
         @Tolerance            DECIMAL(38, 0) = 150000,
         @PaymentPool          DECIMAL(38, 0) = 0,
@@ -485,13 +500,13 @@ BEGIN
         SET @ProcessSeq = 1;
         SELECT @MaxProcessSeq = MAX(RowSeq)
         FROM #OrderSettlement
-        WHERE ISNULL(ExtractedOrderNumber, N'') = ISNULL(@CurrentOrder, N'');
+        WHERE ExtractedOrderNumber = @CurrentOrder;
 
         WHILE @ProcessSeq <= @MaxProcessSeq
         BEGIN
             SELECT @LoopAllocatedDebit = AllocatedDebit
             FROM #OrderSettlement
-            WHERE ISNULL(ExtractedOrderNumber, N'') = ISNULL(@CurrentOrder, N'')
+            WHERE ExtractedOrderNumber = @CurrentOrder
               AND RowSeq = @ProcessSeq;
 
             SET @PaymentPool = @PaymentPool + @LoopAllocatedDebit;
@@ -503,7 +518,7 @@ BEGIN
                     @LoopPayable = MablaghJoz
                 FROM #OrderSettlement
                 WHERE IsSettled = 0
-                  AND ISNULL(ExtractedOrderNumber, N'') = ISNULL(@CurrentOrder, N'')
+                  AND ExtractedOrderNumber = @CurrentOrder
                 ORDER BY RowSeq;
 
                 IF @@ROWCOUNT = 0
@@ -516,7 +531,7 @@ BEGIN
                                 THEN AccumulatedPool + @PaymentPool
                             ELSE MablaghJoz + @PaymentPool
                         END
-                        WHERE ISNULL(ExtractedOrderNumber, N'') = ISNULL(@CurrentOrder, N'')
+                        WHERE ExtractedOrderNumber = @CurrentOrder
                           AND RowSeq = @MaxProcessSeq
                           AND IsSettled = 1;
 
@@ -530,7 +545,7 @@ BEGIN
                 BEGIN
                     UPDATE #OrderSettlement
                     SET AccumulatedPool = @PaymentPool
-                    WHERE ISNULL(ExtractedOrderNumber, N'') = ISNULL(@CurrentOrder, N'')
+                    WHERE ExtractedOrderNumber = @CurrentOrder
                       AND RowSeq = @LoopSeq;
 
                     BREAK;
@@ -539,7 +554,7 @@ BEGIN
                 UPDATE #OrderSettlement
                 SET IsSettled = 1,
                     AccumulatedPool = MablaghJoz
-                WHERE ISNULL(ExtractedOrderNumber, N'') = ISNULL(@CurrentOrder, N'')
+                WHERE ExtractedOrderNumber = @CurrentOrder
                   AND RowSeq = @LoopSeq;
 
                 SET @PaymentPool = CASE
@@ -560,7 +575,7 @@ BEGIN
                     THEN AccumulatedPool + @PaymentPool
                 ELSE MablaghJoz + @PaymentPool
             END
-            WHERE ISNULL(ExtractedOrderNumber, N'') = ISNULL(@CurrentOrder, N'')
+            WHERE ExtractedOrderNumber = @CurrentOrder
               AND RowSeq = @MaxProcessSeq
               AND IsSettled = 1;
 

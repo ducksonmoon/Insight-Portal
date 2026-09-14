@@ -245,16 +245,34 @@ select.input-field {
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
+/*
+ * `backwards`, not `both`. While a CSS animation is holding transform via
+ * fill-mode, getComputedStyle reports a resolved matrix even once the
+ * animation has reached "no transform" (matrix(1,0,0,1,0,0), not the
+ * keyword `none`) — and per spec, any transform value other than the
+ * literal `none` makes the element a new containing block for
+ * position:fixed descendants. `both` held that matrix forever after the
+ * 0.45s animation finished, on the page-content wrapper every portal page
+ * renders inside (src/components/layout/portal-shell.tsx) — silently
+ * breaking every fixed-position element on the page, most visibly a
+ * modal's backdrop (src/components/ui/dialog.tsx's .confirm-backdrop): a
+ * small, roughly-centered dialog hid the bug, a large one
+ * (report-data-grid.tsx's full-screen toggle) didn't. `backwards` still
+ * fills the pre-start gap during animation-delay (which .animate-stagger's
+ * children use) but drops the post-end hold, so the element reverts to its
+ * un-animated `transform: none` — the literal keyword — the instant the
+ * animation completes.
+ */
 .animate-enter {
-  animation: enter-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: enter-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 .animate-stagger > * {
-  animation: enter-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: enter-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 .animate-stagger > *:nth-child(1) { animation-delay: 0.04s; }
@@ -620,6 +638,39 @@ select.input-field {
   color: var(--danger);
 }
 
+.badge-accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.badge-muted {
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
+/* One-click date-range presets in report filters (src/lib/reports/date-presets.ts) */
+.date-preset-chip {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 0.2rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  transition: background-color 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.date-preset-chip:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.date-preset-chip:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Alerts */
 .alert {
   border-radius: 0.75rem;
@@ -769,6 +820,15 @@ select.input-field {
 
 .dialog-content {
   width: min(480px, 100%);
+}
+
+/* Full-screen grid view (src/components/reports/report-data-grid.tsx) */
+.report-grid-fullscreen {
+  width: min(96vw, 1600px);
+  height: min(92vh, 1000px);
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem;
 }
 
 .dialog-close {

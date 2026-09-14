@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { CONDITION_OPS, type ConditionNode } from "@/lib/entities/condition";
+
 export type ReportParameterType =
   | "jalali-date"
   | "jalali-date-range"
@@ -24,8 +26,7 @@ export type ReportParameter = {
   rangeEndName?: string;
 };
 
-/** Reuses the four tones the design system already ships (`.badge-primary` etc.) rather than inventing a fifth. */
-export type ReportBadgeTone = "primary" | "success" | "warning" | "danger";
+export type ReportColumnTone = "primary" | "success" | "warning" | "danger" | "accent" | "muted";
 
 export type ReportColumn = {
   field: string;
@@ -38,19 +39,48 @@ export type ReportColumn = {
   hidden?: boolean;
   sort?: "asc" | "desc";
   /**
+   * Renders this column's cell as a coloured badge instead of plain text —
+   * a map from the exact string value (e.g. a status label like "معوق") to
+   * a tone. Values with no entry in the map render as plain text. Use for a
+   * column whose whole cell value is one of a known set (a status).
+   */
+  badgeTone?: Record<string, ReportColumnTone>;
+  /**
    * Renders a "A|B|C" cell value as colored badge chips instead of plain
    * text — for a column whose SQL emits a pipe-delimited list of short,
    * human-readable phrases (e.g. «بدون مهلت پرداخت|ثبت زیر چند بانک»)
    * rather than a single opaque count. Keyed by the exact phrase text; a
    * phrase with no entry still renders (default tone, no tooltip) so a
    * SQL change that adds a new phrase never blanks the cell — it just
-   * shows up uncolored until someone adds it here.
+   * shows up uncolored until someone adds it here. Use for a column that
+   * can carry several independent flags in one cell at once — badgeTone
+   * above is for a column whose whole value is a single known state.
    *
    * The cell's raw value is untouched (sort, quick-filter and CSV/Excel
    * export all see the plain pipe-delimited text); this only changes how
    * the grid paints it.
    */
-  badges?: Record<string, { tone?: ReportBadgeTone; tooltip?: string }>;
+  badges?: Record<string, { tone?: ReportColumnTone; tooltip?: string }>;
+};
+
+/**
+ * One stat card in a report's optional KPI band — see ReportDataset.kpiBand.
+ * Computed client-side from the dataset's own already-returned rows (no
+ * extra query): `aggregate` reduces the rows matching `condition` (every row,
+ * when omitted). Reuses the same bounded condition DSL the Entity Rule
+ * Builder / entity-kpi dashboard widgets already use
+ * (src/lib/entities/condition.ts), so there's no second mini-language.
+ */
+export type KpiCardSpec = {
+  id: string;
+  labelFa: string;
+  hintFa?: string;
+  tone: ReportColumnTone;
+  /** "count" ignores `field`; "sum" requires it. */
+  aggregate: { op: "count" | "sum"; field?: string };
+  condition?: ConditionNode;
+  /** "amount" formats with thousands separators; defaults to plain number formatting. */
+  format?: "number" | "amount";
 };
 
 export type ReportGridConfig = {
@@ -92,6 +122,8 @@ export type ReportDataset = {
     groupBy: string[];
     aggregates: Array<{ field: string; func: string; label: string }>;
   };
+  /** Stat-card strip rendered above this dataset's grid — see KpiCardSpec. */
+  kpiBand?: KpiCardSpec[];
   /** Optional parent dataset for key-join nesting */
   parentDatasetId?: string;
   parentKeyFields?: string[];
@@ -202,11 +234,13 @@ export const reportParameterSchema = z.object({
   rangeEndName: z.string().optional(),
 });
 
-export const reportBadgeToneSchema = z.enum([
+export const reportColumnToneSchema = z.enum([
   "primary",
   "success",
   "warning",
   "danger",
+  "accent",
+  "muted",
 ]);
 
 export const reportColumnSchema = z.object({
@@ -219,15 +253,45 @@ export const reportColumnSchema = z.object({
   align: z.enum(["start", "center", "end"]).optional(),
   hidden: z.boolean().optional(),
   sort: z.enum(["asc", "desc"]).optional(),
+  badgeTone: z.record(z.string(), reportColumnToneSchema).optional(),
   badges: z
     .record(
       z.string(),
       z.object({
-        tone: reportBadgeToneSchema.optional(),
+        tone: reportColumnToneSchema.optional(),
         tooltip: z.string().optional(),
       }),
     )
     .optional(),
+});
+
+const conditionLeafSchema = z.object({
+  field: z.string().min(1),
+  op: z.enum(CONDITION_OPS),
+  value: z.unknown(),
+});
+
+const conditionNodeSchema: z.ZodType<ConditionNode> = z.lazy(() =>
+  z.union([
+    conditionLeafSchema,
+    z.object({
+      all: z.array(conditionNodeSchema).optional(),
+      any: z.array(conditionNodeSchema).optional(),
+    }),
+  ]),
+);
+
+export const kpiCardSpecSchema = z.object({
+  id: z.string().min(1),
+  labelFa: z.string().min(1),
+  hintFa: z.string().optional(),
+  tone: reportColumnToneSchema,
+  aggregate: z.object({
+    op: z.enum(["count", "sum"]),
+    field: z.string().optional(),
+  }),
+  condition: conditionNodeSchema.optional(),
+  format: z.enum(["number", "amount"]).optional(),
 });
 
 export const reportGridConfigSchema = z.object({
@@ -270,6 +334,7 @@ export const reportDatasetSchema = z.object({
       ),
     })
     .optional(),
+  kpiBand: z.array(kpiCardSpecSchema).optional(),
   parentDatasetId: z.string().optional(),
   parentKeyFields: z.array(z.string()).optional(),
   childKeyFields: z.array(z.string()).optional(),

@@ -804,6 +804,15 @@ select.input-field {
   width: min(480px, 100%);
 }
 
+/* Full-screen grid view (src/components/reports/report-data-grid.tsx) */
+.report-grid-fullscreen {
+  width: min(96vw, 1600px);
+  height: min(92vh, 1000px);
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem;
+}
+
 .dialog-close {
   position: absolute;
   top: 0.75rem;

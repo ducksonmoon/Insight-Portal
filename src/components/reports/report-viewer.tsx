@@ -209,6 +209,7 @@ function MasterDetailSection({
               grouping={detail.grouping}
               gridConfig={detailGrid}
               reportId={`${report.id}-${detail.id}`}
+              exportReportId={report.id}
               heightClass={detailHeight}
             />
           ) : (

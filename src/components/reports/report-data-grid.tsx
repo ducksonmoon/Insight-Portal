@@ -15,6 +15,7 @@ import "ag-grid-community/styles/ag-theme-quartz.css";
 
 import { formatCellValue } from "@/lib/reports/format";
 import { AG_GRID_LOCALE_FA } from "@/lib/ag-grid/locale-fa";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ReportGridToolbar } from "@/components/reports/report-grid-toolbar";
 import {
   resolveGridConfig,
@@ -33,6 +34,8 @@ type ReportDataGridProps = {
   grouping?: ReportDefinition["grouping"];
   gridConfig?: ReportGridConfig;
   reportId?: string;
+  /** See ReportGridToolbarProps.exportReportId — defaults to reportId. */
+  exportReportId?: string;
   showToolbar?: boolean;
   heightClass?: string;
   /** Master-detail: called with the clicked row, so a parent grid can drive a detail panel. */
@@ -60,6 +63,7 @@ export function ReportDataGrid({
   grouping,
   gridConfig: gridConfigInput,
   reportId,
+  exportReportId,
   showToolbar,
   heightClass = "h-[min(62vh,640px)]",
   onRowClick,
@@ -70,6 +74,11 @@ export function ReportDataGrid({
   const toolbarVisible = showToolbar ?? gridConfig.showToolbar ?? true;
   const [gridApi, setGridApi] = useState<GridApi | null>(null);
   const [filteredRows, setFilteredRows] = useState(rows.length);
+  // Full-screen view for reading a wide/long grid comfortably. Only one
+  // <AgGridReact> is ever mounted at a time (inline OR inside the dialog,
+  // never both) — simplest way to avoid two grid instances drifting out of
+  // sync with independent filter/sort state.
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const sortedRows = useMemo(() => {
     if (!grouping?.groupBy?.length) return rows;
@@ -193,30 +202,25 @@ export function ReportDataGrid({
   const densityClass =
     gridConfig.density === "compact" ? "ag-grid-compact" : "";
 
-  return (
-    <div className="space-y-2">
-      {grouping?.groupBy?.length ? (
-        <p className="text-xs text-[var(--muted)]">
-          مرتب‌سازی گروهی بر اساس: {grouping.groupBy.join("، ")}
-          {grouping.aggregates?.length
-            ? ` · تجمیع: ${grouping.aggregates.map((a) => a.label).join("، ")}`
-            : null}
-        </p>
-      ) : null}
-
-      <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-white">
+  function renderSurface(gridHeightClass: string) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-white">
         {toolbarVisible ? (
           <ReportGridToolbar
             gridApi={gridApi}
             totalRows={sortedRows.length}
             filteredRows={filteredRows}
             reportId={reportId}
+            exportReportId={exportReportId}
+            columns={effectiveColumns}
             enableQuickFilter={gridConfig.enableQuickFilter ?? true}
+            isExpanded={isExpanded}
+            onToggleExpand={() => setIsExpanded((v) => !v)}
           />
         ) : null}
 
         <div
-          className={`ag-theme-quartz ${densityClass} ${heightClass} w-full`}
+          className={`ag-theme-quartz ${densityClass} ${gridHeightClass} w-full`}
         >
           <AgGridReact
             rowData={sortedRows}
@@ -259,6 +263,27 @@ export function ReportDataGrid({
           />
         </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {grouping?.groupBy?.length ? (
+        <p className="text-xs text-[var(--muted)]">
+          مرتب‌سازی گروهی بر اساس: {grouping.groupBy.join("، ")}
+          {grouping.aggregates?.length
+            ? ` · تجمیع: ${grouping.aggregates.map((a) => a.label).join("، ")}`
+            : null}
+        </p>
+      ) : null}
+
+      {!isExpanded ? renderSurface(heightClass) : null}
+
+      <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
+        <DialogContent className="report-grid-fullscreen" showClose={false}>
+          {renderSurface("flex-1 min-h-0")}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

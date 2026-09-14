@@ -5,19 +5,36 @@ import type { GridApi } from "ag-grid-community";
 import {
   Columns3,
   Download,
+  FileSpreadsheet,
   FilterX,
+  Loader2,
+  Maximize2,
+  Minimize2,
   Search,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import type { ReportColumn } from "@/types/report";
 
 type ReportGridToolbarProps = {
   gridApi: GridApi | null;
   totalRows: number;
   filteredRows: number;
+  /** Used for downloaded file names (CSV/Excel). */
   reportId?: string;
+  /**
+   * The real, permission-checked report slug the Excel export endpoint
+   * should authorize against. Distinct from `reportId` because a
+   * master-detail child grid's `reportId` is a synthetic display id like
+   * "lc-summary-payments", not a report that actually exists — the server
+   * call still has to name the real report. Defaults to `reportId`.
+   */
+  exportReportId?: string;
+  columns?: ReportColumn[];
   enableQuickFilter?: boolean;
   showRowCount?: boolean;
+  isExpanded?: boolean;
+  onToggleExpand?: () => void;
 };
 
 export function ReportGridToolbar({
@@ -25,10 +42,15 @@ export function ReportGridToolbar({
   totalRows,
   filteredRows,
   reportId,
+  exportReportId,
+  columns,
   enableQuickFilter = true,
   showRowCount = true,
+  isExpanded = false,
+  onToggleExpand,
 }: ReportGridToolbarProps) {
   const [quickFilter, setQuickFilter] = useState("");
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
 
   const applyQuickFilter = useCallback(
     (value: string) => {
@@ -62,6 +84,48 @@ export function ReportGridToolbar({
     if (!gridApi) return;
     const fileName = reportId ? `${reportId}-grid.csv` : "report-grid.csv";
     gridApi.exportDataAsCsv({ fileName });
+  }
+
+  /**
+   * Exactly what's on screen right now — same filtered/sorted rows and
+   * visible columns CSV export uses — turned into a real .xlsx via the
+   * server (ag-grid Community has no built-in Excel exporter; that's an
+   * Enterprise-only feature). See src/app/api/reports/[id]/export-grid.
+   */
+  async function exportExcel() {
+    if (!gridApi || !columns?.length) return;
+    const targetReportId = exportReportId ?? reportId;
+    if (!targetReportId) return;
+
+    setIsExportingExcel(true);
+    try {
+      const rows: Record<string, unknown>[] = [];
+      gridApi.forEachNodeAfterFilterAndSort((node) => {
+        if (node.data) rows.push(node.data as Record<string, unknown>);
+      });
+      const visibleColumns = columns.filter((c) => !c.hidden);
+
+      const res = await fetch(`/api/reports/${targetReportId}/export-grid`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sheetName: reportId ?? targetReportId,
+          columns: visibleColumns,
+          rows,
+        }),
+      });
+      if (!res.ok) return;
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${reportId ?? targetReportId}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsExportingExcel(false);
+    }
   }
 
   return (
@@ -112,6 +176,39 @@ export function ReportGridToolbar({
           <Download className="h-3.5 w-3.5" />
           خروجی CSV
         </Button>
+
+        {columns?.length ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!gridApi || totalRows === 0 || isExportingExcel}
+            onClick={() => void exportExcel()}
+          >
+            {isExportingExcel ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="h-3.5 w-3.5" />
+            )}
+            خروجی Excel
+          </Button>
+        ) : null}
+
+        {onToggleExpand ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onToggleExpand}
+          >
+            {isExpanded ? (
+              <Minimize2 className="h-3.5 w-3.5" />
+            ) : (
+              <Maximize2 className="h-3.5 w-3.5" />
+            )}
+            {isExpanded ? "اندازه عادی" : "بزرگ‌نمایی"}
+          </Button>
+        ) : null}
       </div>
 
       {showRowCount ? (

@@ -70,19 +70,36 @@ const LC_SUMMARY_KPI_BAND: KpiCardSpec[] = [
     condition: { field: "مانده اعتبار استفاده‌نشده", op: "gt", value: 0 },
   },
   {
-    // A genuine defect: the free-text title didn't yield a usable value.
-    id: "data-quality-parse",
-    labelFa: "ایراد در استخراج متن",
-    hintFa: "شماره اعتبار، سفارش یا مهلت از عنوان تفصیلی قابل‌استخراج نبود",
+    // A genuine defect: the LC number, order number, or usance term
+    // couldn't be read off the free-text title at all. Deliberately does
+    // NOT include the invoice-date fallback below — that's a much milder,
+    // far more common issue, and folding it in here is exactly the
+    // "one opaque number" problem this split exists to avoid.
+    id: "data-quality-identifier",
+    labelFa: "شناسه یا مهلت غیرقابل استخراج",
+    hintFa: "شماره اعتبار، شماره سفارش یا مهلت از عنوان تفصیلی خوانده نشد",
     tone: "warning",
     aggregate: { op: "count" },
-    condition: { field: "ایراد در استخراج متن", op: "gt", value: 0 },
+    condition: { field: "شناسه یا مهلت غیرقابل استخراج", op: "gt", value: 0 },
+  },
+  {
+    // Milder still: the voucher's description carried no 14xx/xx/xx date,
+    // so its own posting date stood in for the invoice date. Common on
+    // real accounting entries and often harmless — see هشدار on the row
+    // itself for which one — so it gets its own low-key card rather than
+    // being counted as a "استخراج متن" defect.
+    id: "data-quality-date-fallback",
+    labelFa: "تاریخ فاکتور جایگزین شد",
+    hintFa: "تاریخ در شرح سند یافت نشد؛ به‌جای آن تاریخ ثبت سند استفاده شد",
+    tone: "accent",
+    aggregate: { op: "count" },
+    condition: { field: "تاریخ از شرح استخراج نشد", op: "eq", value: 1 },
   },
   {
     // Not a defect — most LCs in this data genuinely have no matching
     // opening record on file (see lc-monitoring.md's Layer 1 finding: only
     // 47 of 137 do). Kept as its own, honestly-labelled card instead of
-    // folded into "ایراد در استخراج متن", which would read as a much bigger
+    // folded into either card above, which would read as a much bigger
     // parsing problem than actually exists.
     id: "data-quality-no-opening",
     labelFa: "بدون گشایش شناسایی‌شده",
@@ -128,8 +145,12 @@ const LC_SUMMARY_COLUMNS = [
       { field: "اولین فاکتور", header: "اولین فاکتور", type: "string" as const, width: 110, hidden: true },
       { field: "آخرین فاکتور", header: "آخرین فاکتور", type: "string" as const, width: 110, hidden: true },
       { field: "هشدار", header: "هشدار", type: "string" as const, width: 220 },
-      { field: "ایراد در استخراج متن", header: "ایراد در استخراج متن", type: "number" as const, width: 130, hidden: true },
+      { field: "شناسه یا مهلت غیرقابل استخراج", header: "شناسه یا مهلت غیرقابل استخراج", type: "number" as const, width: 160, hidden: true },
+      { field: "تاریخ از شرح استخراج نشد", header: "تاریخ از شرح استخراج نشد", type: "number" as const, width: 150, hidden: true },
       { field: "بدون گشایش شناسایی‌شده", header: "بدون گشایش شناسایی‌شده", type: "number" as const, width: 150, hidden: true },
+      { field: "شماره اعتبار نامشخص", header: "شماره اعتبار نامشخص", type: "number" as const, width: 130, hidden: true },
+      { field: "شماره سفارش نامشخص", header: "شماره سفارش نامشخص", type: "number" as const, width: 130, hidden: true },
+      { field: "مهلت نامشخص", header: "مهلت نامشخص", type: "number" as const, width: 110, hidden: true },
       { field: "شرح تفصیل اعتبار", header: "شرح تفصیل اعتبار", type: "string" as const, width: 320, hidden: true },
     ];
 

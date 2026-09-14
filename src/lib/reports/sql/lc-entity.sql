@@ -103,5 +103,11 @@ SELECT
     CASE WHEN a.OpeningAmount IS NOT NULL
          THEN a.OpeningAmount - a.TotalInvoiced
     END                                                      AS unusedCredit,
-    (a.DqNoLc + a.DqNoOrder + a.DqNoTerm + a.DqNoOpen)      AS dqFlags
+    -- Kept apart on purpose, same reasoning as lc-summary.sql: a missing LC
+    -- number/order number/term is a genuine parse failure, but most LCs in
+    -- this data simply have no matching opening record on file at all
+    -- (see lc-monitoring.md's Layer 1 finding — 47 of 137), which is a fact
+    -- about the books, not a defect in the report.
+    (a.DqNoLc + a.DqNoOrder + a.DqNoTerm)                   AS dqParseFlags,
+    a.DqNoOpen                                              AS dqNoOpening
 FROM Agg a;

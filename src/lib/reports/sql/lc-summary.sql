@@ -108,7 +108,14 @@ Scored AS (
         DaysToDue    = DATEDIFF(DAY, @AsOf, a.NextOpenDue),
         OverdueDays  = CASE WHEN a.OldestOpenDue IS NOT NULL
                             THEN DATEDIFF(DAY, a.OldestOpenDue, @AsOf) END,
-        DqCount      = a.DqNoLc + a.DqNoOrder + a.DqNoTerm + a.DqNoOpen
+        -- Two different kinds of "don't fully trust this row", kept apart on
+        -- purpose. DqTextCount is a genuine defect: the free-text title
+        -- didn't yield a usable value. DqNoOpen is not — most LCs in this
+        -- data simply have no matching opening record on file (only 47 of
+        -- 137, per docs/architecture/lc-monitoring.md's Layer 1 finding),
+        -- so folding it into the same count as a parse failure reads as a
+        -- much bigger problem than it is.
+        DqTextCount  = a.DqNoLc + a.DqNoOrder + a.DqNoTerm
                        + CASE WHEN a.DqFallback > 0 THEN 1 ELSE 0 END,
         -- Ordered by urgency, so sorting on وضعیت sorts by what to deal with
         -- first. «معوق» here means the due date has actually passed — the
@@ -135,8 +142,10 @@ Final AS (
         Alert = STUFF(
             CASE WHEN s.OpeningAmount IS NOT NULL AND s.TotalInvoiced > s.OpeningAmount + @Tol
                  THEN N' + مصرف بیش از مبلغ گشایش' ELSE N'' END
-          + CASE WHEN s.DqCount > 0
-                 THEN N' + ' + CAST(s.DqCount AS NVARCHAR(4)) + N' ایراد داده' ELSE N'' END,
+          + CASE WHEN s.DqTextCount > 0
+                 THEN N' + ' + CAST(s.DqTextCount AS NVARCHAR(4)) + N' ایراد در استخراج متن' ELSE N'' END
+          + CASE WHEN s.DqNoOpen = 1
+                 THEN N' + بدون گشایش شناسایی‌شده' ELSE N'' END,
             1, 3, N'')
     FROM Scored s
 )
@@ -176,6 +185,10 @@ SELECT
     SYS3.fn_DateToShamsiDate(f.FirstInvoice)  AS [اولین فاکتور],
     SYS3.fn_DateToShamsiDate(f.LastInvoice)   AS [آخرین فاکتور],
     NULLIF(f.Alert, N'')                      AS [هشدار],
+    -- Split out of هشدار so the KPI band and any rule can count each kind
+    -- separately instead of a single, easily-misread "X ایراد داده" figure.
+    f.DqTextCount                             AS [ایراد در استخراج متن],
+    f.DqNoOpen                                AS [بدون گشایش شناسایی‌شده],
     f.LcTitle                                 AS [شرح تفصیل اعتبار]
 FROM Final f
 WHERE (

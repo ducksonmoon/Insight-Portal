@@ -31,7 +31,8 @@ function record(overrides: Partial<LetterOfCreditRecord>): LetterOfCreditRecord 
     termDays: 60,
     invoiceCount: 3,
     unusedCredit: 500_000_000,
-    dqFlags: 0,
+    dqParseFlags: 0,
+    dqNoOpening: 0,
     ...overrides,
   };
 }
@@ -138,10 +139,17 @@ describe("unusedCreditEvaluate", () => {
 describe("dataQualityEvaluate", () => {
   it("only includes LCs with at least one unparsed field, worst first", () => {
     const findings = dataQualityEvaluate([
-      record({ externalId: "clean", dqFlags: 0 }),
-      record({ externalId: "minor", dqFlags: 1 }),
-      record({ externalId: "major", dqFlags: 3 }),
+      record({ externalId: "clean", dqParseFlags: 0 }),
+      record({ externalId: "minor", dqParseFlags: 1 }),
+      record({ externalId: "major", dqParseFlags: 3 }),
     ]);
     expect(findings.map((f) => f.entity_id)).toEqual(["major", "minor"]);
+  });
+
+  it("does not flag an LC that only has no matching opening record", () => {
+    const findings = dataQualityEvaluate([
+      record({ externalId: "no-opening-only", dqParseFlags: 0, dqNoOpening: 1 }),
+    ]);
+    expect(findings).toHaveLength(0);
   });
 });

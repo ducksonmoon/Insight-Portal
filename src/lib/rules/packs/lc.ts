@@ -96,14 +96,21 @@ function unusedCreditEvaluate(
     .sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0));
 }
 
+// Parse failures only — NOT dqNoOpening. Most LCs in this data genuinely
+// have no matching opening record on file (47 of 137, per
+// docs/architecture/lc-monitoring.md's Layer 1 finding), so firing a daily
+// "data quality" finding for that would flag the majority of LCs every
+// single day for something that isn't actually broken, and a manager would
+// learn to ignore the rule within a week. It's still visible — as its own,
+// honestly-labelled KPI card on the report — just not raised as a defect.
 function dataQualityEvaluate(records: LetterOfCreditRecord[]): RuleFindingRow[] {
   return records
-    .filter((r) => r.dqFlags > 0)
-    .sort((a, b) => b.dqFlags - a.dqFlags)
+    .filter((r) => r.dqParseFlags > 0)
+    .sort((a, b) => b.dqParseFlags - a.dqParseFlags)
     .map((r) => ({
       entity_id: r.externalId,
       title: `ایراد داده در عنوان تفصیلی اعتبار — ${r.lcIdentifier ?? r.externalId}`,
-      detail: `${r.counterpartName ?? "ذی‌نفع نامشخص"} — سفارش ${r.orderNumber ?? "—"} — ${r.dqFlags} مورد از (شماره اعتبار، شماره سفارش، مهلت، مبلغ گشایش) از متن عنوان قابل استخراج نبود`,
+      detail: `${r.counterpartName ?? "ذی‌نفع نامشخص"} — سفارش ${r.orderNumber ?? "—"} — ${r.dqParseFlags} مورد از (شماره اعتبار، شماره سفارش، مهلت) از متن عنوان قابل استخراج نبود`,
       amount: null,
       ref_date: null,
     }));
@@ -183,9 +190,9 @@ export const lcRules: Rule[] = [
     module: "FIN",
     pack: "daily",
     severity: "medium",
-    titleFa: "ایراد داده در عنوان تفصیلی اعتبار اسنادی",
+    titleFa: "ایراد در استخراج متن عنوان تفصیلی اعتبار اسنادی",
     descriptionFa:
-      "اعتباراتی که شماره اعتبار، شماره سفارش، مهلت یا مبلغ گشایش‌شان از متن آزاد عنوان تفصیلی قابل استخراج نبوده.",
+      "اعتباراتی که شماره اعتبار، شماره سفارش یا مهلتشان از متن آزاد عنوان تفصیلی قابل استخراج نبوده — نبودن گشایش شناسایی‌شده جزو این قانون نیست، چون برای اکثر اعتبارات این داده طبیعی است.",
     whyItMattersFa:
       "قوانین بالا همگی روی همین متن آزاد بنا شده‌اند؛ یک داشبورد صادق باید بگوید چه زمانی نباید کاملاً به آن اعتماد کرد.",
     fixHintFa:

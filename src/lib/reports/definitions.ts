@@ -70,12 +70,26 @@ const LC_SUMMARY_KPI_BAND: KpiCardSpec[] = [
     condition: { field: "مانده اعتبار استفاده‌نشده", op: "gt", value: 0 },
   },
   {
-    id: "data-quality",
-    labelFa: "ردیف دارای ایراد داده",
-    hintFa: "شماره اعتبار، سفارش، مهلت یا مبلغ گشایش قابل‌استخراج نبود",
+    // A genuine defect: the free-text title didn't yield a usable value.
+    id: "data-quality-parse",
+    labelFa: "ایراد در استخراج متن",
+    hintFa: "شماره اعتبار، سفارش یا مهلت از عنوان تفصیلی قابل‌استخراج نبود",
     tone: "warning",
     aggregate: { op: "count" },
-    condition: { field: "هشدار", op: "contains", value: "ایراد داده" },
+    condition: { field: "ایراد در استخراج متن", op: "gt", value: 0 },
+  },
+  {
+    // Not a defect — most LCs in this data genuinely have no matching
+    // opening record on file (see lc-monitoring.md's Layer 1 finding: only
+    // 47 of 137 do). Kept as its own, honestly-labelled card instead of
+    // folded into "ایراد در استخراج متن", which would read as a much bigger
+    // parsing problem than actually exists.
+    id: "data-quality-no-opening",
+    labelFa: "بدون گشایش شناسایی‌شده",
+    hintFa: "رکورد گشایش مطابق در دفتر انتظامی پیدا نشد — معمولاً طبیعی است، نه لزوماً ایراد",
+    tone: "muted",
+    aggregate: { op: "count" },
+    condition: { field: "بدون گشایش شناسایی‌شده", op: "eq", value: 1 },
   },
 ];
 
@@ -114,6 +128,8 @@ const LC_SUMMARY_COLUMNS = [
       { field: "اولین فاکتور", header: "اولین فاکتور", type: "string" as const, width: 110, hidden: true },
       { field: "آخرین فاکتور", header: "آخرین فاکتور", type: "string" as const, width: 110, hidden: true },
       { field: "هشدار", header: "هشدار", type: "string" as const, width: 220 },
+      { field: "ایراد در استخراج متن", header: "ایراد در استخراج متن", type: "number" as const, width: 130, hidden: true },
+      { field: "بدون گشایش شناسایی‌شده", header: "بدون گشایش شناسایی‌شده", type: "number" as const, width: 150, hidden: true },
       { field: "شرح تفصیل اعتبار", header: "شرح تفصیل اعتبار", type: "string" as const, width: 320, hidden: true },
     ];
 

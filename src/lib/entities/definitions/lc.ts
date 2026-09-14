@@ -46,8 +46,10 @@ export interface LetterOfCreditRecord {
   termDays: number | null;
   invoiceCount: number;
   unusedCredit: number | null;
-  /** Count of (شماره اعتبار / سفارش / مهلت / مبلغ گشایش) that could not be parsed off the title. */
-  dqFlags: number;
+  /** Count of (شماره اعتبار / سفارش / مهلت) that could not be parsed off the title — a genuine defect. */
+  dqParseFlags: number;
+  /** 1 when no off-balance opening record matched — often just a fact about the books, not a defect (see lc-monitoring.md's Layer 1 finding). */
+  dqNoOpening: number;
 }
 
 export const letterOfCreditEntity: BusinessEntityDef<LetterOfCreditRecord> = {
@@ -67,7 +69,8 @@ export const letterOfCreditEntity: BusinessEntityDef<LetterOfCreditRecord> = {
     { key: "unusedCredit", labelFa: "مانده اعتبار استفاده‌نشده (ریال)", type: "number" },
     { key: "openingAmount", labelFa: "مبلغ گشایش (ریال)", type: "number" },
     { key: "totalInvoiced", labelFa: "جمع اسناد واصله (ریال)", type: "number" },
-    { key: "dqFlags", labelFa: "تعداد ایراد داده", type: "number" },
+    { key: "dqParseFlags", labelFa: "تعداد ایراد در استخراج متن", type: "number" },
+    { key: "dqNoOpening", labelFa: "بدون گشایش شناسایی‌شده", type: "number" },
     { key: "bankName", labelFa: "بانک عامل", type: "string" },
     { key: "counterpartName", labelFa: "ذی‌نفع", type: "string" },
     { key: "orderNumber", labelFa: "شماره سفارش", type: "string" },

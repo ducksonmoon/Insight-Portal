@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     One-time setup: registers Insight Portal as a Windows Service (via NSSM)
     and configures an IIS reverse-proxy site in front of it. Run this ONCE
@@ -6,7 +6,7 @@
     Node.js/IIS/URL Rewrite/ARR/NSSM all present and a first
     `npm ci && npm run build` has already succeeded in $DeployPath.
 
-    This script does NOT run on the GitHub Actions runner — deploy-windows.yml
+    This script does NOT run on the GitHub Actions runner - deploy-windows.yml
     only restarts the service this script creates. Read every step before
     running; it changes IIS and service configuration on this machine.
 
@@ -37,7 +37,7 @@ if (-not (Test-Path $DeployPath)) {
     throw "DeployPath '$DeployPath' does not exist. Clone the repo there and run 'npm ci && npm run build' first."
 }
 if (-not (Test-Path (Join-Path $DeployPath ".env"))) {
-    throw ".env not found in $DeployPath. Create it first (copy .env.example and fill in real values) — the service reads it from this directory at startup."
+    throw ".env not found in $DeployPath. Create it first (copy .env.example and fill in real values) - the service reads it from this directory at startup."
 }
 
 $nssm = Get-Command nssm -ErrorAction SilentlyContinue
@@ -51,7 +51,7 @@ Write-Host "== Registering '$ServiceName' as a Windows Service ==" -ForegroundCo
 
 $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($existing) {
-    Write-Host "Service '$ServiceName' already exists — stopping and removing it first." -ForegroundColor Yellow
+    Write-Host "Service '$ServiceName' already exists - stopping and removing it first." -ForegroundColor Yellow
     Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
     nssm remove $ServiceName confirm
 }
@@ -62,7 +62,7 @@ nssm install $ServiceName $npmPath "start"
 nssm set $ServiceName AppDirectory $DeployPath
 nssm set $ServiceName AppEnvironmentExtra "PORT=$AppPort" "NODE_ENV=production"
 nssm set $ServiceName DisplayName "Insight Portal"
-nssm set $ServiceName Description "Insight Portal — Next.js app (managed by NSSM, deployed via GitHub Actions)"
+nssm set $ServiceName Description "Insight Portal - Next.js app (managed by NSSM, deployed via GitHub Actions)"
 nssm set $ServiceName Start SERVICE_AUTO_START
 nssm set $ServiceName AppStdout (Join-Path $DeployPath "logs\service-out.log")
 nssm set $ServiceName AppStderr (Join-Path $DeployPath "logs\service-err.log")
@@ -82,7 +82,7 @@ Write-Host "== Configuring IIS reverse proxy ('$SiteName' -> localhost:$AppPort)
 Import-Module WebAdministration
 
 if (Get-Website -Name $SiteName -ErrorAction SilentlyContinue) {
-    Write-Host "Site '$SiteName' already exists — leaving it as-is. Delete it first in IIS Manager to reconfigure." -ForegroundColor Yellow
+    Write-Host "Site '$SiteName' already exists - leaving it as-is. Delete it first in IIS Manager to reconfigure." -ForegroundColor Yellow
 } else {
     $sitePhysicalPath = Join-Path $DeployPath "iis-proxy"
     New-Item -ItemType Directory -Force -Path $sitePhysicalPath | Out-Null
@@ -90,7 +90,7 @@ if (Get-Website -Name $SiteName -ErrorAction SilentlyContinue) {
     # ARR must have "Enable proxy" turned on once, server-wide, in
     # IIS Manager -> (server node) -> Application Request Routing Cache ->
     # Server Proxy Settings -> Enable proxy. This script can't toggle that
-    # setting reliably across IIS versions — check it manually if the site
+    # setting reliably across IIS versions - check it manually if the site
     # returns 502s after this runs.
     New-Website -Name $SiteName -PhysicalPath $sitePhysicalPath -HostHeader $SiteHostName -Port 80
 

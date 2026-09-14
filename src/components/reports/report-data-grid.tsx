@@ -8,6 +8,7 @@ import {
   type ColDef,
   type GridApi,
   type GridReadyEvent,
+  type ICellRendererParams,
   type ValueFormatterParams,
 } from "ag-grid-community";
 import "ag-grid-community/styles/ag-theme-quartz.css";
@@ -21,6 +22,43 @@ import {
   type ReportDefinition,
   type ReportGridConfig,
 } from "@/types/report";
+
+/**
+ * Renders a "A|B|C" cell as colored badge chips — see `ReportColumn.badges`.
+ * Laid out on one line with horizontal scroll rather than wrapping, so a busy
+ * row (several issues at once) never grows past the grid's fixed row height.
+ */
+function BadgeCell(
+  params: ICellRendererParams<Record<string, unknown>, string> & {
+    badges: NonNullable<ReportColumn["badges"]>;
+  },
+) {
+  const raw = params.value;
+  if (!raw) return null;
+  const phrases = raw
+    .split("|")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (!phrases.length) return null;
+
+  return (
+    <div className="flex h-full items-center gap-1 overflow-x-auto whitespace-nowrap">
+      {phrases.map((phrase, i) => {
+        const meta = params.badges[phrase];
+        const tone = meta?.tone ?? "primary";
+        return (
+          <span
+            key={`${phrase}-${i}`}
+            className={`badge badge-${tone} shrink-0`}
+            title={meta?.tooltip}
+          >
+            {phrase}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -129,6 +167,13 @@ export function ReportDataGrid({
         cellStyle: {
           textAlign: alignToCss(col.align, isNumber),
         },
+        // Only the paint changes — sort, quick-filter and CSV/Excel export
+        // all still see valueFormatter's plain pipe-delimited text below.
+        cellRenderer: col.badges
+          ? (p: ICellRendererParams<Record<string, unknown>, string>) => (
+              <BadgeCell {...p} badges={col.badges!} />
+            )
+          : undefined,
         valueFormatter: (p: ValueFormatterParams) =>
           formatCellValue(p.value, col),
       };

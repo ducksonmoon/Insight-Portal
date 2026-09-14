@@ -294,8 +294,8 @@ What changed in the data, beyond the grain:
   `@HorizonDays` filter (default 7).
 - **New columns the old report had no room for**: درصد مصرف اعتبار, مانده
   اعتبار استفاده‌نشده, قدمت معوق, ageing buckets (۱-۳۰ / ۳۱-۶۰ / ۶۱-۹۰ / +۹۰),
-  سررسید امروز/نزدیک/۳۰ روز, and a هشدار column carrying «مصرف بیش از مبلغ
-  گشایش» and the per-LC data-quality count.
+  سررسید امروز/نزدیک/۳۰ روز, and — see below — two columns of colored,
+  explained badges instead of one vague count.
 - **Payments are visible at all.** The settlement collapses every payment into
   one `AllocatedDebit` per invoice line, so the actual vouchers — date, number,
   type, description, amount — had never been exposed. `lc-payments.sql` reads
@@ -324,6 +324,46 @@ The join key moved to `src/types/report-result.ts` as `makeDatasetJoinKey` and
 the engine's private copy is gone. Two copies of a key-building function on
 opposite sides of a network boundary drift silently, and the symptom would be
 "clicking a row shows nothing".
+
+### Named, explained, colored — not «۲ ایراد داده»
+
+A count told a reader *something* was uncertain and nothing about what. Now
+there are two separate columns, each rendering a "|"-joined list of short
+Persian phrases as colored badge chips (`ReportColumn.badges`, generic — any
+report column can use it, not just this one):
+
+| Column | Answers | Tone rule |
+| --- | --- | --- |
+| **ایراد داده** | "how sure is this row?" — the title parser was missing or ambiguous about something, so a number here may be off | danger for the two that silently corrupt a *number* (a missing term backdates سررسید; a multi-bank booking doubles an amount in a per-bank total); warning for the two that just leave a field blank; primary for the one that only ever substitutes a nearby real date |
+| **هشدار** | "the row parsed fine — act on this" | danger (currently: usage past the credit's own opening amount) |
+
+Each phrase carries a tooltip (hover a badge) explaining the mechanism, not
+just naming it — e.g. «بدون مهلت پرداخت» reads: *"No «روزه» number was found
+in the title, so this row's due date defaults to its invoice date with no
+term added — which can make a current credit look «معوق» or «نزدیک سررسید»
+before it should."* An unrecognized phrase still renders (default tone, no
+tooltip) rather than vanishing, so a future SQL change can't silently blank
+the cell.
+
+**New detector: booked under more than one bank.** The 138th row from §2
+(detail account `85158`, order `031060364`, 3,620,681,392 rial identically
+booked under both بانک صادرات and بانک شهر) was a one-off finding when this
+was written. It is now a standing check — `Dl6BankCounts` counts distinct
+`DL5Code` per `DL6Code` from `#LcAccount`, and any account with more than one
+gets «ثبت زیر چند بانک» — so the next occurrence surfaces on its own instead
+of waiting for someone to notice the totals don't add up.
+
+**A real bug this surfaced**: adding that check meant reading `#LcAccount`
+*after* `lc-core.sql` finishes, which failed with "Invalid object name
+'#LcAccount'" — the file's own header comment promised `#LcAccount` as
+something "left behind" for the including report, but the cleanup at the end
+dropped it anyway alongside the genuinely scratch `#LcTitle`/`#LcOpening`.
+Fixed by actually honoring that contract: `#LcAccount` now survives (guarded
+by the same start-of-file `IF OBJECT_ID … DROP` pattern `#FinalCalc` already
+used, so a leftover from an earlier run on the pooled connection is never a
+problem), and only the two tables that are truly single-use scratch get
+dropped. Worth flagging because the header comment had been wrong since the
+file was first split — nothing had needed to read `#LcAccount` back until now.
 
 Two things worth knowing about the implementation:
 
@@ -462,6 +502,11 @@ them should be resolved by us guessing:
 5. **Which invoice date is authoritative** when the description carries no
    `14xx/xx/xx` — is falling back to the voucher date acceptable, or should
    those rows be flagged instead?
+6. **Order `031060364` / detail account `85158`, now flagged automatically
+   as «ثبت زیر چند بانک»** — 3,620,681,392 rial booked identically under both
+   بانک صادرات and بانک شهر. Real duplicate booking, correction of a wrong
+   bank code, or something else? The finance team is the only one who can
+   say; the report can only point at it.
 
 ---
 

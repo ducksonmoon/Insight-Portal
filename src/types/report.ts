@@ -24,6 +24,9 @@ export type ReportParameter = {
   rangeEndName?: string;
 };
 
+/** Reuses the four tones the design system already ships (`.badge-primary` etc.) rather than inventing a fifth. */
+export type ReportBadgeTone = "primary" | "success" | "warning" | "danger";
+
 export type ReportColumn = {
   field: string;
   header: string;
@@ -34,6 +37,20 @@ export type ReportColumn = {
   align?: "start" | "center" | "end";
   hidden?: boolean;
   sort?: "asc" | "desc";
+  /**
+   * Renders a "A|B|C" cell value as colored badge chips instead of plain
+   * text — for a column whose SQL emits a pipe-delimited list of short,
+   * human-readable phrases (e.g. «بدون مهلت پرداخت|ثبت زیر چند بانک»)
+   * rather than a single opaque count. Keyed by the exact phrase text; a
+   * phrase with no entry still renders (default tone, no tooltip) so a
+   * SQL change that adds a new phrase never blanks the cell — it just
+   * shows up uncolored until someone adds it here.
+   *
+   * The cell's raw value is untouched (sort, quick-filter and CSV/Excel
+   * export all see the plain pipe-delimited text); this only changes how
+   * the grid paints it.
+   */
+  badges?: Record<string, { tone?: ReportBadgeTone; tooltip?: string }>;
 };
 
 export type ReportGridConfig = {
@@ -185,6 +202,13 @@ export const reportParameterSchema = z.object({
   rangeEndName: z.string().optional(),
 });
 
+export const reportBadgeToneSchema = z.enum([
+  "primary",
+  "success",
+  "warning",
+  "danger",
+]);
+
 export const reportColumnSchema = z.object({
   field: z.string().min(1),
   header: z.string().min(1),
@@ -195,6 +219,15 @@ export const reportColumnSchema = z.object({
   align: z.enum(["start", "center", "end"]).optional(),
   hidden: z.boolean().optional(),
   sort: z.enum(["asc", "desc"]).optional(),
+  badges: z
+    .record(
+      z.string(),
+      z.object({
+        tone: reportBadgeToneSchema.optional(),
+        tooltip: z.string().optional(),
+      }),
+    )
+    .optional(),
 });
 
 export const reportGridConfigSchema = z.object({

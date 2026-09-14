@@ -116,3 +116,25 @@ export async function buildReportExcelBuffer(
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }
+
+/**
+ * Single-sheet export of exactly the rows a grid is showing right now —
+ * filtered, sorted, hidden columns dropped — as opposed to
+ * buildReportExcelBuffer(), which re-runs the whole report server-side and
+ * exports every dataset unfiltered. Used by the grid toolbar's "Excel"
+ * button (src/components/reports/report-grid-toolbar.tsx) so a user gets
+ * exactly what they're looking at, the same contract CSV export already has
+ * via ag-grid's own exporter.
+ */
+export async function buildRowsExcelBuffer(
+  sheetName: string,
+  columns: ReportColumn[],
+  rows: Record<string, unknown>[],
+): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Insight Portal";
+  workbook.created = new Date();
+  addSheet(workbook, sheetName, columns, rows);
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}

@@ -108,8 +108,21 @@ Scored AS (
         DaysToDue    = DATEDIFF(DAY, @AsOf, a.NextOpenDue),
         OverdueDays  = CASE WHEN a.OldestOpenDue IS NOT NULL
                             THEN DATEDIFF(DAY, a.OldestOpenDue, @AsOf) END,
-        DqCount      = a.DqNoLc + a.DqNoOrder + a.DqNoTerm + a.DqNoOpen
-                       + CASE WHEN a.DqFallback > 0 THEN 1 ELSE 0 END,
+        -- Three different kinds of "don't fully trust this row", kept apart
+        -- on purpose instead of one opaque count — a manager reading "3
+        -- ایراد" learns nothing about what's actually wrong or whether it's
+        -- worth acting on:
+        --   DqIdentifierCount — a genuine defect: the LC number, order
+        --     number or usance term couldn't be read off the free-text
+        --     title at all.
+        --   DqDateFallback — a much milder issue: the voucher's own
+        --     description carried no 14xx/xx/xx date, so the voucher's
+        --     posting date stood in for the invoice date. Common, and often
+        --     harmless, but worth knowing which rows it happened on.
+        --   DqNoOpen (below) — not a defect at all for most LCs in this
+        --     data; see its own comment.
+        DqIdentifierCount = a.DqNoLc + a.DqNoOrder + a.DqNoTerm,
+        DqDateFallback    = CASE WHEN a.DqFallback > 0 THEN 1 ELSE 0 END,
         -- Ordered by urgency, so sorting on وضعیت sorts by what to deal with
         -- first. «معوق» here means the due date has actually passed — the
         -- detail report calls any unsettled balance معوق, which is what made
@@ -132,11 +145,19 @@ Final AS (
             WHEN 4 THEN N'جاری'
             WHEN 5 THEN N'مازاد پرداخت'
             ELSE N'تسویه شده' END,
+        -- Names the exact field(s) at fault instead of a bare count — "2
+        -- ایراد در استخراج متن" tells a reader nothing; "شماره سفارش نامشخص
+        -- + مهلت نامشخص" tells them exactly what to go check in راهکاران.
         Alert = STUFF(
             CASE WHEN s.OpeningAmount IS NOT NULL AND s.TotalInvoiced > s.OpeningAmount + @Tol
                  THEN N' + مصرف بیش از مبلغ گشایش' ELSE N'' END
-          + CASE WHEN s.DqCount > 0
-                 THEN N' + ' + CAST(s.DqCount AS NVARCHAR(4)) + N' ایراد داده' ELSE N'' END,
+          + CASE WHEN s.DqNoLc = 1 THEN N' + شماره اعتبار نامشخص' ELSE N'' END
+          + CASE WHEN s.DqNoOrder = 1 THEN N' + شماره سفارش نامشخص' ELSE N'' END
+          + CASE WHEN s.DqNoTerm = 1 THEN N' + مهلت نامشخص' ELSE N'' END
+          + CASE WHEN s.DqDateFallback = 1
+                 THEN N' + تاریخ فاکتور از شرح استخراج نشد (از تاریخ سند استفاده شد)' ELSE N'' END
+          + CASE WHEN s.DqNoOpen = 1
+                 THEN N' + بدون گشایش شناسایی‌شده' ELSE N'' END,
             1, 3, N'')
     FROM Scored s
 )
@@ -176,6 +197,17 @@ SELECT
     SYS3.fn_DateToShamsiDate(f.FirstInvoice)  AS [اولین فاکتور],
     SYS3.fn_DateToShamsiDate(f.LastInvoice)   AS [آخرین فاکتور],
     NULLIF(f.Alert, N'')                      AS [هشدار],
+    -- Split out of هشدار so the KPI band and any rule can count each kind
+    -- separately instead of one opaque figure. The three summary columns
+    -- drive the KPI cards; the three per-field ones are for drilling into
+    -- exactly which field failed on a given row (visible in the column
+    -- panel / Excel export, hidden from the default grid).
+    f.DqIdentifierCount                       AS [شناسه یا مهلت غیرقابل استخراج],
+    f.DqDateFallback                          AS [تاریخ از شرح استخراج نشد],
+    f.DqNoOpen                                AS [بدون گشایش شناسایی‌شده],
+    f.DqNoLc                                  AS [شماره اعتبار نامشخص],
+    f.DqNoOrder                               AS [شماره سفارش نامشخص],
+    f.DqNoTerm                                AS [مهلت نامشخص],
     f.LcTitle                                 AS [شرح تفصیل اعتبار]
 FROM Final f
 WHERE (

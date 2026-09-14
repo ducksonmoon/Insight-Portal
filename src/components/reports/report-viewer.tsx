@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  ChevronDown,
+  ChevronUp,
   Download,
   FileBarChart2,
   Loader2,
@@ -12,6 +14,7 @@ import {
 
 import { ReportCharts } from "@/components/reports/report-charts";
 import { ReportDataGrid } from "@/components/reports/report-data-grid";
+import { ReportKpiBand } from "@/components/reports/report-kpi-band";
 import { ReportParameterForm } from "@/components/reports/report-parameter-form";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { Button } from "@/components/ui/button";
@@ -34,9 +37,11 @@ import type {
   EmbedResult,
 } from "@/types/report-result";
 import {
+  getPrimaryDataset,
   isCompositeReport,
   resolveGridConfig,
   type ReportDefinition,
+  type ReportParameter,
 } from "@/types/report";
 
 type ReportViewerProps = {
@@ -135,6 +140,10 @@ function MasterDetailSection({
         </div>
       </div>
 
+      {masterDef?.kpiBand?.length ? (
+        <ReportKpiBand rows={master.rows} cards={masterDef.kpiBand} />
+      ) : null}
+
       <ReportCharts charts={master.charts ?? []} rows={master.rows} />
 
       <p className="text-xs text-[var(--muted)]">
@@ -200,6 +209,7 @@ function MasterDetailSection({
               grouping={detail.grouping}
               gridConfig={detailGrid}
               reportId={`${report.id}-${detail.id}`}
+              exportReportId={report.id}
               heightClass={detailHeight}
             />
           ) : (
@@ -242,6 +252,9 @@ function DatasetSection({
           ) : null}
         </div>
       </div>
+      {datasetDef?.kpiBand?.length ? (
+        <ReportKpiBand rows={dataset.rows} cards={datasetDef.kpiBand} />
+      ) : null}
       <ReportCharts charts={dataset.charts ?? []} rows={dataset.rows} />
       <ReportDataGrid
         rows={dataset.rows}
@@ -382,9 +395,11 @@ function ReportResultSections({
   const gridConfig = report
     ? resolveGridConfig(report.gridConfig)
     : undefined;
+  const kpiBand = report ? getPrimaryDataset(report).kpiBand : undefined;
 
   return (
     <div className="space-y-5">
+      {kpiBand?.length ? <ReportKpiBand rows={result.rows} cards={kpiBand} /> : null}
       <ReportCharts charts={result.charts ?? []} rows={result.rows} />
       <ReportDataGrid
         rows={result.rows}
@@ -406,6 +421,38 @@ type SavedView = {
 
 const paramsKey = (reportId: string) => `insight:report-params:${reportId}`;
 
+/**
+ * A human-readable summary of one submitted filter value, for the compact
+ * "applied filters" strip shown once a report's filter panel collapses after
+ * running — so a manager can see at a glance what's being filtered without
+ * reopening the form. Returns null for an empty/unset filter (nothing to
+ * show — "خالی یعنی همه").
+ */
+function formatAppliedFilterValue(
+  param: ReportParameter,
+  values: Record<string, unknown>,
+): string | null {
+  if (param.type === "jalali-date-range") {
+    const startName = param.rangeStartName ?? "STARTDATE";
+    const endName = param.rangeEndName ?? "ENDDATE";
+    const start = values[startName];
+    const end = values[endName];
+    if (!start && !end) return null;
+    return `${start ? String(start) : "…"} تا ${end ? String(end) : "…"}`;
+  }
+
+  const raw = values[param.name];
+  if (raw == null || raw === "") return null;
+
+  if (param.type === "boolean") {
+    return raw === true || raw === "true" ? "بله" : "خیر";
+  }
+  if (param.type === "select") {
+    return param.options?.find((o) => o.value === raw)?.label ?? String(raw);
+  }
+  return String(raw);
+}
+
 export function ReportViewer({ report, placement }: ReportViewerProps) {
   const { toast } = useToast();
   const searchParams = useSearchParams();
@@ -422,6 +469,11 @@ export function ReportViewer({ report, placement }: ReportViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const [hasRun, setHasRun] = useState(false);
   const [meta, setMeta] = useState<RunMeta | null>(null);
+  const [lastRunAt, setLastRunAt] = useState<Date | null>(null);
+  // Collapsed once a run succeeds — a manager checking a daily report wants
+  // the numbers, not a re-explanation of the filter form every time. Stays
+  // (or reopens) on error so a bad filter is easy to fix.
+  const [filtersOpen, setFiltersOpen] = useState(true);
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [saveViewName, setSaveViewName] = useState("");
   const [saveViewDefault, setSaveViewDefault] = useState(false);
@@ -460,10 +512,13 @@ export function ReportViewer({ report, placement }: ReportViewerProps) {
           truncated: data.truncated,
         });
         setHasRun(true);
+        setLastRunAt(new Date());
+        setFiltersOpen(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "خطای ناشناخته");
         setResult(null);
         setMeta(null);
+        setFiltersOpen(true);
       } finally {
         setIsLoading(false);
       }
@@ -633,6 +688,10 @@ export function ReportViewer({ report, placement }: ReportViewerProps) {
       ? "داده‌ای برای خروجی نیست"
       : undefined;
 
+  const appliedFilterCount = report.parameters.filter(
+    (param) => formatAppliedFilterValue(param, lastParams) != null,
+  ).length;
+
   const breadcrumbItems = placement
     ? [
         { label: "گزارش‌ها", href: "/reports" },
@@ -664,8 +723,9 @@ export function ReportViewer({ report, placement }: ReportViewerProps) {
           </div>
           <h1 className="page-title">{report.nameFa}</h1>
           <p className="page-subtitle">
-            فیلترها را تنظیم کنید و اجرا بگیرید. خروجی Excel کامل از سرور؛ CSV
-            سریع از نوار ابزار جدول (فیلترشده).
+            {hasRun && lastRunAt
+              ? `آخرین اجرا: امروز ساعت ${lastRunAt.toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}`
+              : "فیلترهای زیر را تنظیم کنید و گزارش را اجرا بگیرید."}
           </p>
         </div>
 
@@ -714,15 +774,51 @@ export function ReportViewer({ report, placement }: ReportViewerProps) {
 
       <section className="filter-panel">
         <div className="filter-panel-header">
-          <h2 className="section-title">فیلترها</h2>
-          <p className="section-desc">
-            تاریخ شمسی را با فیلدهای سال / ماه / روز وارد کنید.
-            {report.parameters.some((p) => p.required || p.nullable === false)
-              ? " فیلدهای ستاره‌دار الزامی‌اند."
-              : " فیلترهای خالی یعنی «همه»."}
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="section-title">فیلترها</h2>
+              {filtersOpen ? (
+                <p className="section-desc">
+                  تاریخ شمسی را با فیلدهای سال / ماه / روز وارد کنید، یا از
+                  دکمه‌های میان‌بر بازه استفاده کنید.
+                  {hasRequired
+                    ? " فیلدهای ستاره‌دار الزامی‌اند."
+                    : " فیلترهای خالی یعنی «همه»."}
+                </p>
+              ) : appliedFilterCount > 0 ? (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {report.parameters.map((param) => {
+                    const text = formatAppliedFilterValue(param, lastParams);
+                    if (!text) return null;
+                    return (
+                      <span key={param.name} className="badge badge-muted">
+                        {param.label}: {text}
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="section-desc">فیلتری اعمال نشده — همه دیتا نمایش داده شده.</p>
+              )}
+            </div>
+
+            {hasRun ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFiltersOpen((open) => !open)}
+              >
+                {filtersOpen ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+                {filtersOpen ? "بستن فیلترها" : "ویرایش فیلترها"}
+              </Button>
+            ) : null}
+          </div>
         </div>
-        <div className="filter-panel-body space-y-4">
+        <div className={filtersOpen ? "filter-panel-body space-y-4" : "hidden"}>
           {savedViews.length ? (
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold text-[var(--muted)]">نماهای ذخیره‌شده:</span>
@@ -761,10 +857,15 @@ export function ReportViewer({ report, placement }: ReportViewerProps) {
       {error ? <p className="alert alert-danger">{error}</p> : null}
 
       {hasRun && result ? (
-        <section className="results-panel">
+        <section className="results-panel relative">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
             <h2 className="section-title">نتایج</h2>
             <div className="flex flex-wrap gap-2 text-xs">
+              {meta?.totalCount != null ? (
+                <span className="badge badge-primary">
+                  {meta.totalCount.toLocaleString("fa-IR")} ردیف
+                </span>
+              ) : null}
               {meta?.durationMs != null ? (
                 <span className="badge badge-success">{meta.durationMs} ms</span>
               ) : null}
@@ -773,7 +874,19 @@ export function ReportViewer({ report, placement }: ReportViewerProps) {
               ) : null}
             </div>
           </div>
-          <ReportResultSections result={result} report={report} />
+
+          {isLoading ? (
+            <div className="absolute inset-0 z-10 flex items-start justify-center rounded-[var(--radius)] bg-[var(--surface)]/70 pt-16 backdrop-blur-[1px]">
+              <span className="flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] shadow-[var(--shadow-md)]">
+                <Loader2 className="h-4 w-4 animate-spin text-[var(--primary)]" />
+                در حال به‌روزرسانی نتایج…
+              </span>
+            </div>
+          ) : null}
+
+          <div className={isLoading ? "pointer-events-none opacity-50" : undefined}>
+            <ReportResultSections result={result} report={report} />
+          </div>
         </section>
       ) : (
         <div className="results-empty space-y-3 text-center">

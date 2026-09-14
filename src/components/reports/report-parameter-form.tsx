@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 
 import { JalaliDateInput } from "@/components/reports/jalali-date-input";
 import { Button } from "@/components/ui/button";
+import { DATE_RANGE_PRESETS, todayJalali } from "@/lib/reports/date-presets";
 import {
   isReportParameterRequired,
   validateSubmittedParameters,
@@ -43,6 +44,7 @@ export function ReportParameterForm({
     handleSubmit,
     reset,
     control,
+    setValue,
     formState: { errors },
     setError,
     clearErrors,
@@ -169,6 +171,29 @@ export function ReportParameterForm({
                 {param.label}
                 {required ? <span className="text-[var(--danger)]"> *</span> : null}
               </span>
+              <div className="flex flex-wrap gap-1.5">
+                {DATE_RANGE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className="date-preset-chip"
+                    disabled={isLoading}
+                    onClick={() => {
+                      const { start, end } = preset.range();
+                      setValue(`${param.name}__start`, start, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      });
+                      setValue(`${param.name}__end`, end, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      });
+                    }}
+                  >
+                    {preset.labelFa}
+                  </button>
+                ))}
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="mb-1 text-[11px] text-[var(--muted)]">
@@ -251,21 +276,38 @@ export function ReportParameterForm({
                   <option value="false">خیر</option>
                 </select>
               ) : param.type === "jalali-date" ? (
-                <Controller
-                  name={param.name}
-                  control={control}
-                  defaultValue=""
-                  rules={{ required: requiredRule(param) }}
-                  render={({ field }) => (
-                    <JalaliDateInput
-                      name={field.name}
-                      value={field.value}
-                      onChange={field.onChange}
-                      disabled={isLoading}
-                      className={errors[param.name] ? fieldErrorClass : undefined}
+                <div className="flex items-start gap-2">
+                  <div className="flex-1">
+                    <Controller
+                      name={param.name}
+                      control={control}
+                      defaultValue=""
+                      rules={{ required: requiredRule(param) }}
+                      render={({ field }) => (
+                        <JalaliDateInput
+                          name={field.name}
+                          value={field.value}
+                          onChange={field.onChange}
+                          disabled={isLoading}
+                          className={errors[param.name] ? fieldErrorClass : undefined}
+                        />
+                      )}
                     />
-                  )}
-                />
+                  </div>
+                  <button
+                    type="button"
+                    className="date-preset-chip mt-0.5"
+                    disabled={isLoading}
+                    onClick={() =>
+                      setValue(param.name, todayJalali(), {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      })
+                    }
+                  >
+                    امروز
+                  </button>
+                </div>
               ) : (
                 <input
                   type={param.type === "number" ? "number" : "text"}

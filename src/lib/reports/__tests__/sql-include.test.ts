@@ -40,7 +40,17 @@ describe("SQL @include", () => {
     const summary = reportDefinitions.find((r) => r.id === "lc-summary")!;
     const sql = resolveSqlText(summary);
     for (const param of summary.parameters) {
-      expect(sql, `@${param.name} missing from lc-summary.sql`).toContain(`@${param.name}`);
+      // jalali-date-range doesn't appear in the SQL under its own param
+      // name — it binds through rangeStartName/rangeEndName instead (see
+      // src/lib/reports/engine.ts bindParameter and validate.ts's own
+      // expandDeclaredParams, which this mirrors).
+      const sqlNames =
+        param.type === "jalali-date-range"
+          ? [param.rangeStartName ?? "STARTDATE", param.rangeEndName ?? "ENDDATE"]
+          : [param.name];
+      for (const name of sqlNames) {
+        expect(sql, `@${name} missing from lc-summary.sql`).toContain(`@${name}`);
+      }
     }
   });
 

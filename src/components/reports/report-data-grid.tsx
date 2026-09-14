@@ -8,6 +8,7 @@ import {
   type ColDef,
   type GridApi,
   type GridReadyEvent,
+  type ICellRendererParams,
   type ValueFormatterParams,
 } from "ag-grid-community";
 import "ag-grid-community/styles/ag-theme-quartz.css";
@@ -131,6 +132,21 @@ export function ReportDataGrid({
         },
         valueFormatter: (p: ValueFormatterParams) =>
           formatCellValue(p.value, col),
+        // Renders a status-like value ("معوق", "تسویه شده", …) as a coloured
+        // badge instead of plain text — declared per-column via
+        // ReportColumn.badgeTone (see src/types/report.ts). Values with no
+        // entry in the map fall back to plain text, so a partial map is safe.
+        cellRenderer: col.badgeTone
+          ? (p: ICellRendererParams) => {
+              const text = p.value == null ? "" : String(p.value);
+              const tone = col.badgeTone?.[text];
+              if (!tone) return text;
+              const span = document.createElement("span");
+              span.className = `badge badge-${tone}`;
+              span.textContent = text;
+              return span;
+            }
+          : undefined,
       };
     });
   }, [effectiveColumns, grouping, gridConfig.pinFirstColumn]);

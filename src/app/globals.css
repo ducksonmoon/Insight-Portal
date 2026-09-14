@@ -620,6 +620,39 @@ select.input-field {
   color: var(--danger);
 }
 
+.badge-accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.badge-muted {
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
+/* One-click date-range presets in report filters (src/lib/reports/date-presets.ts) */
+.date-preset-chip {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 0.2rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  transition: background-color 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.date-preset-chip:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.date-preset-chip:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Alerts */
 .alert {
   border-radius: 0.75rem;

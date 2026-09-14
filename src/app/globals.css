@@ -245,16 +245,34 @@ select.input-field {
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
+/*
+ * `backwards`, not `both`. While a CSS animation is holding transform via
+ * fill-mode, getComputedStyle reports a resolved matrix even once the
+ * animation has reached "no transform" (matrix(1,0,0,1,0,0), not the
+ * keyword `none`) — and per spec, any transform value other than the
+ * literal `none` makes the element a new containing block for
+ * position:fixed descendants. `both` held that matrix forever after the
+ * 0.45s animation finished, on the page-content wrapper every portal page
+ * renders inside (src/components/layout/portal-shell.tsx) — silently
+ * breaking every fixed-position element on the page, most visibly a
+ * modal's backdrop (src/components/ui/dialog.tsx's .confirm-backdrop): a
+ * small, roughly-centered dialog hid the bug, a large one
+ * (report-data-grid.tsx's full-screen toggle) didn't. `backwards` still
+ * fills the pre-start gap during animation-delay (which .animate-stagger's
+ * children use) but drops the post-end hold, so the element reverts to its
+ * un-animated `transform: none` — the literal keyword — the instant the
+ * animation completes.
+ */
 .animate-enter {
-  animation: enter-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: enter-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 .animate-stagger > * {
-  animation: enter-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: enter-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 .animate-stagger > *:nth-child(1) { animation-delay: 0.04s; }

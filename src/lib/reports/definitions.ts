@@ -2,6 +2,59 @@ import type { KpiCardSpec, ReportDefinition } from "@/types/report";
 import { normalizeDefinition } from "@/types/report";
 
 /**
+ * «ایراد داده» — the title parser could not read something it needed from
+ * this LC's free-text detail-account title, so a value on this row (سررسید,
+ * مانده, درصد مصرف) is built on an assumption rather than a fact. Danger tone
+ * for the two that quietly corrupt a *number* the reader would otherwise
+ * trust outright — a missing term silently backdates the due date, a
+ * multi-bank booking silently doubles an amount in a bank-level total.
+ * Warning for the two that just leave a field blank — the reader can see the
+ * gap. Primary (informational) for the one that only ever substitutes a
+ * nearby real date, never a wrong one.
+ */
+const LC_DATA_ISSUE_BADGES = {
+  "بدون شماره سفارش": {
+    tone: "warning" as const,
+    tooltip:
+      "شماره سفارش از عنوان تفصیل این اعتبار قابل استخراج نیست — یا اصلاً تایپ نشده یا با الگویی متفاوت از باقی اسناد نوشته شده. جست‌وجو بر اساس شماره سفارش این ردیف را پیدا نمی‌کند.",
+  },
+  "بدون شناسه اعتبار": {
+    tone: "warning" as const,
+    tooltip:
+      "شناسه اعتبار (عدد داخل ستاره‌ها در عنوان تفصیل) قابل استخراج نیست. مبلغ گشایش این ردیف با شماره سفارش تطبیق داده شده، نه با شناسه اعتبار خودش.",
+  },
+  "بدون مهلت پرداخت": {
+    tone: "danger" as const,
+    tooltip:
+      "عدد «روزه» در عنوان تفصیل یافت نشد. سررسید این ردیف بدون افزودن مهلت محاسبه شده — یعنی برابر تاریخ فاکتور در نظر گرفته شده — و می‌تواند این اعتبار را زودتر از موعد واقعی «معوق» یا «نزدیک سررسید» نشان دهد.",
+  },
+  "بدون مبلغ گشایش": {
+    tone: "warning" as const,
+    tooltip:
+      "هیچ رکورد گشایش (حساب انتظامی ۹۳۰۱) با شناسه اعتبار یا شماره سفارش این ردیف تطبیق نیافت. درصد مصرف اعتبار و مانده اعتبار استفاده‌نشده برای این ردیف قابل محاسبه نیست.",
+  },
+  "تاریخ تخمینی": {
+    tone: "primary" as const,
+    tooltip:
+      "تاریخ فاکتور از شرح سند استخراج نشد؛ به‌جای آن تاریخ ثبت سند در دفتر استفاده شده که معمولاً نزدیک اما گاهی چند روز متفاوت از تاریخ واقعی فاکتور است.",
+  },
+  "ثبت زیر چند بانک": {
+    tone: "danger" as const,
+    tooltip:
+      "همین اعتبار زیر بیش از یک بانک عامل ثبت شده — یعنی همین مبلغ در گزارش بیش از یک بار، زیر دو بانک مختلف ظاهر می‌شود. احتمالاً اشتباه سهوی در ثبت سند است؛ پیش از جمع زدن مانده به‌تفکیک بانک، با واحد مالی بررسی شود.",
+  },
+};
+
+/** «هشدار» — the row parsed cleanly; this is the numbers themselves saying something worth acting on. */
+const LC_BUSINESS_ALERT_BADGES = {
+  "مصرف بیش از گشایش": {
+    tone: "danger" as const,
+    tooltip:
+      "جمع اسناد واصله این اعتبار از مبلغ گشایش آن بیشتر است — یعنی اسنادی فراتر از سقف اعتباری گشایش‌شده پذیرفته شده.",
+  },
+};
+
+/**
  * The six urgency-ordered statuses lc-summary.sql assigns (see its own
  * StatusRank comment) get the same colour every place they appear — this
  * grid's وضعیت column and the KPI band below — so a reader learns the
@@ -108,6 +161,19 @@ const LC_SUMMARY_KPI_BAND: KpiCardSpec[] = [
     aggregate: { op: "count" },
     condition: { field: "بدون گشایش شناسایی‌شده", op: "eq", value: 1 },
   },
+  {
+    // A genuine defect that can silently double-count debt: the same LC
+    // booked under two different issuing banks means the same rial amount
+    // shows up twice when totals are broken down by bank. Found once by
+    // hand (detail account 85158 — see lc-monitoring.md); this is the
+    // standing check so the next occurrence surfaces on its own.
+    id: "data-quality-multi-bank",
+    labelFa: "ثبت زیر چند بانک",
+    hintFa: "همین اعتبار زیر بیش از یک بانک عامل ثبت شده — ممکن است مبلغ دوبار شمرده شود",
+    tone: "danger",
+    aggregate: { op: "count" },
+    condition: { field: "ثبت زیر چند بانک", op: "eq", value: 1 },
+  },
 ];
 
 /** Shared between the lc-summary report's top-level mirror and its `main` dataset. */
@@ -115,6 +181,9 @@ const LC_SUMMARY_COLUMNS = [
       { field: "ردیف", header: "ردیف", type: "number" as const, width: 64, pinned: "right" as const },
       { field: "وضعیت", header: "وضعیت", type: "string" as const, width: 120, pinned: "right" as const, badgeTone: LC_STATUS_BADGE_TONE },
       { field: "اولویت وضعیت", header: "اولویت وضعیت", type: "number" as const, width: 90, hidden: true },
+      { field: "ایراد داده", header: "ایراد داده", type: "string" as const, width: 260, badges: LC_DATA_ISSUE_BADGES },
+      { field: "هشدار", header: "هشدار", type: "string" as const, width: 160, badges: LC_BUSINESS_ALERT_BADGES },
+      { field: "تعداد ایراد داده", header: "تعداد ایراد داده", type: "number" as const, width: 90, hidden: true },
       { field: "شماره گشایش", header: "شماره گشایش", type: "string" as const, width: 210 },
       { field: "شماره سفارش", header: "شماره سفارش", type: "string" as const, width: 120 },
       { field: "بانک عامل", header: "بانک عامل", type: "string" as const, width: 190 },
@@ -144,18 +213,25 @@ const LC_SUMMARY_COLUMNS = [
       { field: "معوق بالای ۹۰", header: "معوق بالای ۹۰", type: "number" as const, format: "#,##0", width: 140, hidden: true },
       { field: "اولین فاکتور", header: "اولین فاکتور", type: "string" as const, width: 110, hidden: true },
       { field: "آخرین فاکتور", header: "آخرین فاکتور", type: "string" as const, width: 110, hidden: true },
-      { field: "هشدار", header: "هشدار", type: "string" as const, width: 220 },
+      // Hidden numeric flags behind the "ایراد داده"/"هشدار" badge columns
+      // above — the KPI band aggregates these directly (see
+      // LC_SUMMARY_KPI_BAND) rather than parsing the pipe-delimited badge
+      // text back apart. The narrower per-field booleans (which single
+      // identifier failed) live in "ایراد داده" itself, named and
+      // tooltipped — no separate hidden column needed for those.
       { field: "شناسه یا مهلت غیرقابل استخراج", header: "شناسه یا مهلت غیرقابل استخراج", type: "number" as const, width: 160, hidden: true },
       { field: "تاریخ از شرح استخراج نشد", header: "تاریخ از شرح استخراج نشد", type: "number" as const, width: 150, hidden: true },
       { field: "بدون گشایش شناسایی‌شده", header: "بدون گشایش شناسایی‌شده", type: "number" as const, width: 150, hidden: true },
-      { field: "شماره اعتبار نامشخص", header: "شماره اعتبار نامشخص", type: "number" as const, width: 130, hidden: true },
-      { field: "شماره سفارش نامشخص", header: "شماره سفارش نامشخص", type: "number" as const, width: 130, hidden: true },
-      { field: "مهلت نامشخص", header: "مهلت نامشخص", type: "number" as const, width: 110, hidden: true },
+      { field: "ثبت زیر چند بانک", header: "ثبت زیر چند بانک", type: "number" as const, width: 130, hidden: true },
       { field: "شرح تفصیل اعتبار", header: "شرح تفصیل اعتبار", type: "string" as const, width: 320, hidden: true },
     ];
 
 const LC_SUMMARY_CHARTS = [
       { type: "pie" as const, title: "تعداد اعتبار به تفکیک وضعیت", xField: "وضعیت", yField: "تعداد فاکتور" },
+      // Zero for تسویه‌شده and مازاد‌پرداخت by construction (مانده بدهی is 0
+      // once a credit settles or overpays) — so this is, at a glance, "how
+      // much money is currently owed, and under which urgency bucket".
+      { type: "bar" as const, title: "مانده بدهی جاری به تفکیک وضعیت", xField: "وضعیت", yField: "مانده بدهی" },
       { type: "bar" as const, title: "مانده بدهی به تفکیک بانک عامل", xField: "بانک عامل", yField: "مانده بدهی" },
       { type: "bar" as const, title: "مبلغ معوق به تفکیک ذی‌نفع", xField: "ذی‌نفع", yField: "مبلغ معوق" },
     ];

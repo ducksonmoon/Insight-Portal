@@ -10,7 +10,12 @@
 --   #FinalCalc  one row per LC invoice line, parsed, dated and costed
 --   @RowDebt    settlement result per line: RemainingDebt (pool − payable, so
 --               negative means still owed), DisplayedDebit, IsInDisplayRange
---   #LcAccount / #LcTitle / #LcOpening  per-detail-account lookups
+--   #LcAccount  the (DL4, DL5, DL6, DLTypeRef6) combinations an LC liability
+--               row can carry — e.g. lc-summary.sql counts distinct DL5 per
+--               DL6 to flag a detail account booked under more than one bank
+-- #LcTitle and #LcOpening (the parsed titles and the opening match) are
+-- scratch — used to build #FinalCalc, dropped once it exists, not part of
+-- this contract.
 --
 -- Parameters it reads, all bound by the app and all optional:
 --   @dl4 @dl5 @OrderNumber @STARTDATE @ENDDATE
@@ -606,6 +611,12 @@ BEGIN
 END
 
 DROP TABLE #InScopeOrders;
-DROP TABLE #LcAccount;
+-- #LcTitle and #LcOpening are scratch, used only to build #FinalCalc above —
+-- gone by design once this pipeline finishes. #LcAccount is NOT dropped here:
+-- it is one of this file's own promised outputs (see the header), and
+-- lc-summary.sql reads it after inclusion (to count how many banks a detail
+-- account is booked under). It carries the same start-of-file guard #FinalCalc
+-- does, so a leftover copy from an earlier run on this pooled connection never
+-- causes "there is already an object named" on the next one.
 DROP TABLE #LcTitle;
 DROP TABLE #LcOpening;

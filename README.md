@@ -421,6 +421,16 @@ sorts and totals it and Excel receives numbers. About 20 of the 33 columns are
 hidden by default — open «تنظیم عرض ستون‌ها» for ageing buckets, credit
 utilisation and the rest.
 
+**Two columns of colored badges, not a count.** «ایراد داده» flags what the
+title parser couldn't read for this row (missing order/LC number, no term —
+which silently backdates سررسید — no matched opening, an estimated invoice
+date, or the same credit booked under two banks); «هشدار» flags a business
+condition once the row parses cleanly (currently: usage past the opening
+amount). Hover a badge for what it means and why it matters; an unrecognized
+phrase still renders instead of vanishing. Generic — any `ReportColumn` can
+set `badges: Record<phrase, {tone, tooltip}>` to get colored chips instead of
+plain text, not just this report.
+
 All three LC queries share one pipeline: `lc-core.sql` (parse titles, match the
 opening, settle each order FIFO) is pulled in with a `-- @include` directive
 resolved by `src/lib/reports/sql-loader.ts`, so a correction lands in every

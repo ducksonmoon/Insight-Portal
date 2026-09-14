@@ -47,6 +47,19 @@ DECLARE @Soon INT = ISNULL(NULLIF(@HorizonDays, 0), 7);
     INNER JOIN @RowDebt rd ON rd.CreditItemID = fc.CreditItemID
     WHERE rd.IsInDisplayRange = 1
 ),
+-- How many distinct banks each detail account (DL6) is booked under. Should
+-- always be 1 — a single LC has a single issuing bank — so a value over 1
+-- means the same free-text title was typed under two different DL5 (bank)
+-- codes, almost certainly a data-entry slip rather than two real credits.
+-- Confirmed on this customer's data: detail account 85158 (سفارش 031060364)
+-- carries 3,620,681,392 rial booked identically under both بانک صادرات and
+-- بانک شهر — the same money, or a real duplicate booking, showing up as two
+-- separate rows in this report with no indication anything was wrong.
+Dl6BankCounts AS (
+    SELECT DL6Code, BankCount = COUNT(DISTINCT DL5Code)
+    FROM #LcAccount
+    GROUP BY DL6Code
+),
 Agg AS (
     SELECT
         DL4Code, DL5Code, DL6Code,
@@ -101,6 +114,7 @@ Agg AS (
 ),
 Scored AS (
     SELECT a.*,
+        BankCount    = ISNULL(bc.BankCount, 1),
         UnusedCredit = CASE WHEN a.OpeningAmount IS NOT NULL
                             THEN a.OpeningAmount - a.TotalInvoiced END,
         UsagePct     = CASE WHEN a.OpeningAmount IS NOT NULL
@@ -108,10 +122,11 @@ Scored AS (
         DaysToDue    = DATEDIFF(DAY, @AsOf, a.NextOpenDue),
         OverdueDays  = CASE WHEN a.OldestOpenDue IS NOT NULL
                             THEN DATEDIFF(DAY, a.OldestOpenDue, @AsOf) END,
-        -- Three different kinds of "don't fully trust this row", kept apart
-        -- on purpose instead of one opaque count — a manager reading "3
-        -- ایراد" learns nothing about what's actually wrong or whether it's
-        -- worth acting on:
+        -- Several different kinds of "don't fully trust this row", kept
+        -- apart on purpose instead of one opaque count — a manager reading
+        -- "3 ایراد" learns nothing about what's actually wrong or whether
+        -- it's worth acting on. See the "ایراد داده"/"هشدار" comment below
+        -- for how these become named, tooltipped badges.
         --   DqIdentifierCount — a genuine defect: the LC number, order
         --     number or usance term couldn't be read off the free-text
         --     title at all.
@@ -119,10 +134,21 @@ Scored AS (
         --     description carried no 14xx/xx/xx date, so the voucher's
         --     posting date stood in for the invoice date. Common, and often
         --     harmless, but worth knowing which rows it happened on.
-        --   DqNoOpen (below) — not a defect at all for most LCs in this
-        --     data; see its own comment.
+        --   DqMultiBank — a genuine defect that can silently double-count
+        --     debt: this DL6 is booked under more than one issuing bank
+        --     (see Dl6BankCounts above).
+        --   DqNoOpen (below, from Agg) — not a defect at all for most LCs
+        --     in this data; see its own comment.
         DqIdentifierCount = a.DqNoLc + a.DqNoOrder + a.DqNoTerm,
         DqDateFallback    = CASE WHEN a.DqFallback > 0 THEN 1 ELSE 0 END,
+        DqMultiBank       = CASE WHEN ISNULL(bc.BankCount, 1) > 1 THEN 1 ELSE 0 END,
+        -- Total across every kind above, DqNoOpen included — a single
+        -- numeric handle for "show me every row with 2+ issues" without
+        -- parsing the pipe-delimited badge text back apart. The badges
+        -- themselves (below) are what a reader actually reads.
+        DqTotalCount = a.DqNoLc + a.DqNoOrder + a.DqNoTerm + a.DqNoOpen
+                       + CASE WHEN a.DqFallback > 0 THEN 1 ELSE 0 END
+                       + CASE WHEN ISNULL(bc.BankCount, 1) > 1 THEN 1 ELSE 0 END,
         -- Ordered by urgency, so sorting on وضعیت sorts by what to deal with
         -- first. «معوق» here means the due date has actually passed — the
         -- detail report calls any unsettled balance معوق, which is what made
@@ -135,7 +161,25 @@ Scored AS (
             WHEN a.Surplus        > @Tol THEN 5
             ELSE 6 END
     FROM Agg a
+    LEFT JOIN Dl6BankCounts bc ON bc.DL6Code = a.DL6Code
 ),
+/*
+ * Two different kinds of "something to look at", kept in two separate
+ * columns rather than one merged «هشدار» string, because they are two
+ * different questions and a reader needs to tell them apart at a glance:
+ *
+ *   ایراد داده     — the report is not fully sure of this row. Something the
+ *                     title parser needed was missing or ambiguous, so a
+ *                     number here (سررسید, مانده, درصد مصرف) may be off.
+ *                     Read the row with that in mind; do not act on it blind.
+ *   هشدار          — the row parsed fine and the numbers say something a
+ *                     finance manager should act on (currently: usage past
+ *                     the credit's own opening amount).
+ *
+ * Each is a "|"-joined list of short Persian phrases, not a count — see the
+ * report definition's `badges` map for how the grid colors and explains each
+ * one. STUFF(...,1,1,'') drops the leading separator.
+ */
 Final AS (
     SELECT s.*,
         LcStatus = CASE s.StatusRank
@@ -145,20 +189,23 @@ Final AS (
             WHEN 4 THEN N'جاری'
             WHEN 5 THEN N'مازاد پرداخت'
             ELSE N'تسویه شده' END,
-        -- Names the exact field(s) at fault instead of a bare count — "2
-        -- ایراد در استخراج متن" tells a reader nothing; "شماره سفارش نامشخص
-        -- + مهلت نامشخص" tells them exactly what to go check in راهکاران.
-        Alert = STUFF(
-            CASE WHEN s.OpeningAmount IS NOT NULL AND s.TotalInvoiced > s.OpeningAmount + @Tol
-                 THEN N' + مصرف بیش از مبلغ گشایش' ELSE N'' END
-          + CASE WHEN s.DqNoLc = 1 THEN N' + شماره اعتبار نامشخص' ELSE N'' END
-          + CASE WHEN s.DqNoOrder = 1 THEN N' + شماره سفارش نامشخص' ELSE N'' END
-          + CASE WHEN s.DqNoTerm = 1 THEN N' + مهلت نامشخص' ELSE N'' END
-          + CASE WHEN s.DqDateFallback = 1
-                 THEN N' + تاریخ فاکتور از شرح استخراج نشد (از تاریخ سند استفاده شد)' ELSE N'' END
-          + CASE WHEN s.DqNoOpen = 1
-                 THEN N' + بدون گشایش شناسایی‌شده' ELSE N'' END,
-            1, 3, N'')
+        -- Named, pipe-delimited phrases instead of a bare count — "2 ایراد"
+        -- tells a reader nothing; these render as colored, tooltipped badge
+        -- chips via ReportColumn.badges (see LC_DATA_ISSUE_BADGES /
+        -- LC_BUSINESS_ALERT_BADGES in src/lib/reports/definitions.ts).
+        DataIssues = NULLIF(STUFF(
+              CASE WHEN s.DqNoOrder = 1 THEN N'|بدون شماره سفارش' ELSE N'' END
+            + CASE WHEN s.DqNoLc    = 1 THEN N'|بدون شناسه اعتبار' ELSE N'' END
+            + CASE WHEN s.DqNoTerm  = 1 THEN N'|بدون مهلت پرداخت' ELSE N'' END
+            + CASE WHEN s.DqNoOpen  = 1 THEN N'|بدون مبلغ گشایش' ELSE N'' END
+            + CASE WHEN s.DqDateFallback = 1 THEN N'|تاریخ تخمینی' ELSE N'' END
+            + CASE WHEN s.DqMultiBank    = 1 THEN N'|ثبت زیر چند بانک' ELSE N'' END
+        , 1, 1, N''), N''),
+        BusinessAlerts = NULLIF(STUFF(
+              CASE WHEN s.OpeningAmount IS NOT NULL
+                    AND s.TotalInvoiced > s.OpeningAmount + @Tol
+                   THEN N'|مصرف بیش از گشایش' ELSE N'' END
+        , 1, 1, N''), N'')
     FROM Scored s
 )
 SELECT
@@ -167,6 +214,12 @@ SELECT
     -- Hidden by default: lets a user re-sort by urgency after sorting on
     -- something else, which sorting the Persian label alphabetically cannot do.
     f.StatusRank                              AS [اولویت وضعیت],
+    f.DataIssues                              AS [ایراد داده],
+    f.BusinessAlerts                          AS [هشدار],
+    -- Hidden: a numeric handle on «ایراد داده» for sorting/filtering
+    -- ("show me every row with 2 or more issues") without parsing the
+    -- pipe-delimited text back apart.
+    f.DqTotalCount                            AS [تعداد ایراد داده],
     f.LcNumber                                AS [شماره گشایش],
     f.OrderNumber                             AS [شماره سفارش],
     f.BankTitle                               AS [بانک عامل],
@@ -196,18 +249,16 @@ SELECT
     f.Age4                                    AS [معوق بالای ۹۰],
     SYS3.fn_DateToShamsiDate(f.FirstInvoice)  AS [اولین فاکتور],
     SYS3.fn_DateToShamsiDate(f.LastInvoice)   AS [آخرین فاکتور],
-    NULLIF(f.Alert, N'')                      AS [هشدار],
-    -- Split out of هشدار so the KPI band and any rule can count each kind
-    -- separately instead of one opaque figure. The three summary columns
-    -- drive the KPI cards; the three per-field ones are for drilling into
-    -- exactly which field failed on a given row (visible in the column
-    -- panel / Excel export, hidden from the default grid).
+    -- Hidden numeric flags behind the ایراد داده/هشدار badge columns above
+    -- (see LC_SUMMARY_KPI_BAND in src/lib/reports/definitions.ts, which
+    -- aggregates these directly rather than parsing the pipe-delimited
+    -- badge text back apart). The narrower per-field booleans (which single
+    -- identifier failed) live in ایراد داده itself, named and tooltipped —
+    -- no separate hidden column needed for those.
     f.DqIdentifierCount                       AS [شناسه یا مهلت غیرقابل استخراج],
     f.DqDateFallback                          AS [تاریخ از شرح استخراج نشد],
     f.DqNoOpen                                AS [بدون گشایش شناسایی‌شده],
-    f.DqNoLc                                  AS [شماره اعتبار نامشخص],
-    f.DqNoOrder                               AS [شماره سفارش نامشخص],
-    f.DqNoTerm                                AS [مهلت نامشخص],
+    f.DqMultiBank                             AS [ثبت زیر چند بانک],
     f.LcTitle                                 AS [شرح تفصیل اعتبار]
 FROM Final f
 WHERE (

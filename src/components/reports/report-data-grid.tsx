@@ -24,6 +24,43 @@ import {
   type ReportGridConfig,
 } from "@/types/report";
 
+/**
+ * Renders a "A|B|C" cell as colored badge chips — see `ReportColumn.badges`.
+ * Laid out on one line with horizontal scroll rather than wrapping, so a busy
+ * row (several issues at once) never grows past the grid's fixed row height.
+ */
+function BadgeCell(
+  params: ICellRendererParams<Record<string, unknown>, string> & {
+    badges: NonNullable<ReportColumn["badges"]>;
+  },
+) {
+  const raw = params.value;
+  if (!raw) return null;
+  const phrases = raw
+    .split("|")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (!phrases.length) return null;
+
+  return (
+    <div className="flex h-full items-center gap-1 overflow-x-auto whitespace-nowrap">
+      {phrases.map((phrase, i) => {
+        const meta = params.badges[phrase];
+        const tone = meta?.tone ?? "primary";
+        return (
+          <span
+            key={`${phrase}-${i}`}
+            className={`badge badge-${tone} shrink-0`}
+            title={meta?.tooltip}
+          >
+            {phrase}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 const NO_ROWS_OVERLAY = '<span class="ag-overlay-no-rows-center">ردیف‌ای برای نمایش نیست</span>';
@@ -141,21 +178,29 @@ export function ReportDataGrid({
         },
         valueFormatter: (p: ValueFormatterParams) =>
           formatCellValue(p.value, col),
-        // Renders a status-like value ("معوق", "تسویه شده", …) as a coloured
-        // badge instead of plain text — declared per-column via
-        // ReportColumn.badgeTone (see src/types/report.ts). Values with no
-        // entry in the map fall back to plain text, so a partial map is safe.
+        // Two badge renderers, mutually exclusive per column (a column
+        // declares at most one of these — see src/types/report.ts):
+        //   badges     — a "A|B|C" cell becomes several independent chips,
+        //                each keyed by its own phrase (ایراد داده/هشدار).
+        //   badgeTone  — the whole cell value is one of a known set (a
+        //                status like "معوق") and becomes a single chip.
+        // Only the paint changes — sort, quick-filter and CSV/Excel export
+        // all still see valueFormatter's plain text/pipe-delimited value.
         // ag-grid-react treats a plain function cellRenderer as a React
         // component, so it must return JSX — a raw DOM node here throws
         // "Objects are not valid as a React child" the moment the column
         // renders.
-        cellRenderer: col.badgeTone
-          ? (p: ICellRendererParams) => {
-              const text = p.value == null ? "" : String(p.value);
-              const tone = col.badgeTone?.[text];
-              return tone ? <span className={`badge badge-${tone}`}>{text}</span> : text;
-            }
-          : undefined,
+        cellRenderer: col.badges
+          ? (p: ICellRendererParams<Record<string, unknown>, string>) => (
+              <BadgeCell {...p} badges={col.badges!} />
+            )
+          : col.badgeTone
+            ? (p: ICellRendererParams) => {
+                const text = p.value == null ? "" : String(p.value);
+                const tone = col.badgeTone?.[text];
+                return tone ? <span className={`badge badge-${tone}`}>{text}</span> : text;
+              }
+            : undefined,
       };
     });
   }, [effectiveColumns, grouping, gridConfig.pinFirstColumn]);

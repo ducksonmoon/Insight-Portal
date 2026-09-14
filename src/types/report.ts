@@ -41,9 +41,26 @@ export type ReportColumn = {
   /**
    * Renders this column's cell as a coloured badge instead of plain text —
    * a map from the exact string value (e.g. a status label like "معوق") to
-   * a tone. Values with no entry in the map render as plain text.
+   * a tone. Values with no entry in the map render as plain text. Use for a
+   * column whose whole cell value is one of a known set (a status).
    */
   badgeTone?: Record<string, ReportColumnTone>;
+  /**
+   * Renders a "A|B|C" cell value as colored badge chips instead of plain
+   * text — for a column whose SQL emits a pipe-delimited list of short,
+   * human-readable phrases (e.g. «بدون مهلت پرداخت|ثبت زیر چند بانک»)
+   * rather than a single opaque count. Keyed by the exact phrase text; a
+   * phrase with no entry still renders (default tone, no tooltip) so a
+   * SQL change that adds a new phrase never blanks the cell — it just
+   * shows up uncolored until someone adds it here. Use for a column that
+   * can carry several independent flags in one cell at once — badgeTone
+   * above is for a column whose whole value is a single known state.
+   *
+   * The cell's raw value is untouched (sort, quick-filter and CSV/Excel
+   * export all see the plain pipe-delimited text); this only changes how
+   * the grid paints it.
+   */
+  badges?: Record<string, { tone?: ReportColumnTone; tooltip?: string }>;
 };
 
 /**
@@ -237,6 +254,15 @@ export const reportColumnSchema = z.object({
   hidden: z.boolean().optional(),
   sort: z.enum(["asc", "desc"]).optional(),
   badgeTone: z.record(z.string(), reportColumnToneSchema).optional(),
+  badges: z
+    .record(
+      z.string(),
+      z.object({
+        tone: reportColumnToneSchema.optional(),
+        tooltip: z.string().optional(),
+      }),
+    )
+    .optional(),
 });
 
 const conditionLeafSchema = z.object({

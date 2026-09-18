@@ -49,7 +49,22 @@ $npmCmd = Get-Command npm.cmd -ErrorAction SilentlyContinue
 if (-not $npmCmd) {
     throw "npm.cmd not found on PATH. Ensure Node.js is installed and its install directory is on the System (not just user) PATH."
 }
-$npmPath = $npmCmd.Source
+# Use the 8.3 short path (no spaces), not a quoted long path. A quoted
+# argument here is built as one PowerShell string with an escaped embedded
+# quote, but PowerShell's marshalling of that string into nssm.exe's native
+# command line silently drops the embedded quotes -- confirmed via
+# `nssm get InsightPortal AppParameters`, which came back as the UNQUOTED
+# "C:\Program Files\nodejs\npm.cmd start", so cmd.exe ran "C:\Program" as
+# the command and everything after as arguments ("'C:\Program' is not
+# recognized ..." in the service's own error log, and a start/crash loop
+# that LOOKS like an install/launch failure but is really the app never
+# getting a chance to run). A short path never contains spaces, so there is
+# no quoting -- and nothing for that marshalling step to lose.
+$fso = New-Object -ComObject Scripting.FileSystemObject
+$npmPath = $fso.GetFile($npmCmd.Source).ShortPath
+if ($npmPath -match ' ') {
+    throw "Could not get a space-free short path for '$($npmCmd.Source)' (got '$npmPath'). This usually means 8.3 short-name generation is disabled on this volume (check with 'fsutil 8dot3name query C:'). Re-install Node.js to a path with no spaces (e.g. C:\nodejs) as a workaround."
+}
 $cmdExe = Join-Path $env:SystemRoot "System32\cmd.exe"
 
 Write-Host "== Registering '$ServiceName' as a Windows Service ==" -ForegroundColor Cyan
@@ -73,7 +88,7 @@ if ($existing) {
 # fails the instant the service tries to start, which is exactly
 # Start-Service's "Failed to start service ... ServiceCommandException".
 # Routing through cmd.exe /c avoids the whole .ps1-vs-.cmd resolution issue.
-nssm install $ServiceName $cmdExe "/c `"$npmPath`" start"
+nssm install $ServiceName $cmdExe "/c $npmPath start"
 nssm set $ServiceName AppDirectory $DeployPath
 nssm set $ServiceName AppEnvironmentExtra "PORT=$AppPort" "NODE_ENV=production"
 nssm set $ServiceName DisplayName "Insight Portal"

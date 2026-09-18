@@ -112,6 +112,40 @@ needs is already in the server's own `.env`.
 | Runner went offline | repo → Settings → Actions → Runners shows its status; on the server, `Get-Service actions.runner.*` |
 | Roll back | `git checkout <previous-sha>` in the deploy directory, then re-run `npm ci && npm run build && npx prisma db push`, then `Restart-Service InsightPortal` — or just re-run the workflow from an earlier successful commit via `workflow_dispatch` after reverting `main` |
 
+## Remote PowerShell (instead of RDP)
+
+Every command in the table above can be run from your own Windows machine
+over PowerShell Remoting (WinRM over HTTPS, port 5986).
+
+1. **On the server, once, as Administrator:**
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\windows-deploy\enable-remoting.ps1 `
+       -HostName "insight-portal.internal" `
+       -AllowedRemoteAddress "10.0.0.0/24"   # your ops subnet/IPs - keep it narrow
+   ```
+
+   This creates an HTTPS listener with a self-signed certificate, turns off
+   Basic auth and unencrypted traffic, and opens 5986 **only** to
+   `-AllowedRemoteAddress`. Note the certificate thumbprint it prints.
+
+2. **From an operator machine:**
+
+   ```powershell
+   # Interactive shell on the server
+   .\scripts\windows-deploy\connect-remote.ps1 -ComputerName insight-portal.internal -SkipCertificateCheck
+
+   # One-off command
+   .\scripts\windows-deploy\connect-remote.ps1 -ComputerName insight-portal.internal -SkipCertificateCheck `
+       -Command { Restart-Service InsightPortal; Get-Service InsightPortal }
+   ```
+
+   Sign in as `DOMAIN\user`, or `SERVERNAME\user` for a local account. Use
+   `-SkipCertificateCheck` only while the cert is self-signed. To drop it,
+   export the server cert (public key only) and import it into the client's
+   **Trusted Root Certification Authorities** store, or re-run step 1 on a
+   machine that has a certificate from your internal CA.
+
 ## Open questions this doc doesn't guess at
 
 Same spirit as the rest of this repo's docs — these are for whoever runs the

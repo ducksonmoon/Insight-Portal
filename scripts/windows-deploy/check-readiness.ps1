@@ -1,7 +1,7 @@
-<#
+﻿<#
 .SYNOPSIS
     Read-only readiness check for deploying Insight Portal to this Windows
-    Server. Makes no changes — run this first to see what's already here
+    Server. Makes no changes - run this first to see what's already here
     and what setup-service.ps1 (or manual steps) still needs to do.
 
 .USAGE
@@ -25,12 +25,12 @@ function Write-Check($label, $ok, $detail) {
 }
 
 Write-Host ""
-Write-Host "== Insight Portal — Windows Server readiness check ==" -ForegroundColor Cyan
+Write-Host "== Insight Portal - Windows Server readiness check ==" -ForegroundColor Cyan
 Write-Host ""
 
 # --- Administrator check --------------------------------------------------
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-Write-Check "Running as Administrator" $isAdmin "Re-run elevated if not — several checks below need it."
+Write-Check "Running as Administrator" $isAdmin "Re-run elevated if not - several checks below need it."
 
 # --- Node.js ---------------------------------------------------------------
 $node = Get-Command node -ErrorAction SilentlyContinue
@@ -60,7 +60,7 @@ Write-Check "IIS Application Request Routing (ARR)" $arrInstalled "Download: htt
 
 # --- NSSM ---------------------------------------------------------------
 $nssm = Get-Command nssm -ErrorAction SilentlyContinue
-Write-Check "NSSM (Windows service wrapper)" ([bool]$nssm) "Download: https://nssm.cc/download — used to run 'npm start' as a service."
+Write-Check "NSSM (Windows service wrapper)" ([bool]$nssm) "Download: https://nssm.cc/download - used to run 'npm start' as a service."
 
 # --- Existing InsightPortal service ---------------------------------------
 $svc = Get-Service -Name "InsightPortal" -ErrorAction SilentlyContinue
@@ -83,9 +83,9 @@ Write-Check "Outbound to github.com:443" $githubReachable "Needed for the runner
 
 if ($RahkaranHost) {
     $rahkaranReachable = Test-NetConnection -ComputerName $RahkaranHost -Port $RahkaranPort -WarningAction SilentlyContinue -InformationLevel Quiet
-    Write-Check "Rahkaran SQL Server ($RahkaranHost`:$RahkaranPort)" $rahkaranReachable "This must succeed from THIS box — the app connects to it directly at runtime."
+    Write-Check "Rahkaran SQL Server ($RahkaranHost`:$RahkaranPort)" $rahkaranReachable "This must succeed from THIS box - the app connects to it directly at runtime."
 } else {
-    Write-Host "[ SKIP ] Rahkaran reachability — pass -RahkaranHost <ip> to check (see RAHKARAN_DB_SERVER in your .env)." -ForegroundColor DarkGray
+    Write-Host "[ SKIP ] Rahkaran reachability - pass -RahkaranHost <ip> to check (see RAHKARAN_DB_SERVER in your .env)." -ForegroundColor DarkGray
 }
 
 Write-Host ""

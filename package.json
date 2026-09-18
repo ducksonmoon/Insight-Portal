@@ -11,6 +11,7 @@
     "db:push": "prisma db push",
     "db:seed": "npx tsx prisma/seed.ts",
     "report:scaffold": "npx tsx scripts/report-scaffold.ts",
+    "report:publish": "npx tsx scripts/publish-reports.ts",
     "rdl:import": "npx tsx scripts/rdl-batch-import.ts",
     "scan": "npx tsx scripts/scan.ts",
     "scan:exception": "npx tsx scripts/rule-exception.ts",
